@@ -15,9 +15,6 @@ OUTL = (0x22, 0x24, 0x26)
 METAL, METAL_D, METAL_L = (0xa6, 0xae, 0xb0), (0x74, 0x7c, 0x7e), (0xdc, 0xe2, 0xe3)
 GLASS, GLASS_L = (0xb8, 0xd4, 0xdc), (0xe8, 0xf6, 0xfa)
 BLOOD, BLOOD_L = (0xb0, 0x14, 0x20), (0xe8, 0x48, 0x50)
-GEM, GEM_D, GEM_L = (0x8a, 0x2c, 0xb0), (0x4e, 0x10, 0x6a), (0xd8, 0x9c, 0xf0)
-CYAN = (0x5e, 0xe0, 0xe0)
-LEATHER, LEATHER_D, LEATHER_L = (0x8a, 0x5a, 0x32), (0x5e, 0x3c, 0x20), (0xa8, 0x74, 0x46)
 
 
 def icon():
@@ -59,89 +56,73 @@ def syringe(level):
     return im
 
 
-POD, POD_D = (0xd8, 0xde, 0xdf), (0x9a, 0xa2, 0xa4)
-ARM = (0x5a, 0x60, 0x62)
+# Нейросинхронизатор (05.11.2026, после теста): иконка размером со шлемы IC2/Minecraft.
+# Кожаный вариант в два слоя: шлем в оттенках серого (слой 0, перекрашивается цветом шлема) и накладка (слой 1).
+SYNC_PAL = {'O':(0x22,0x24,0x26),'A':(0x5a,0x60,0x62),'a':(0x7a,0x82,0x84),'c':(0x5e,0xe0,0xe0),'s':(0xf0,0xf2,0xf2),
+'B':(0xdc,0xe2,0xe3),'b':(0xa6,0xae,0xb0),'G':(0xd8,0x9c,0xf0),'g':(0x8a,0x2c,0xb0),'d':(0x4e,0x10,0x6a),'k':(0x3a,0x7a,0x3a),'r':(0xd0,0x30,0x30),
+'L':(0xff,0xff,0xff),'l':(0xc8,0xc8,0xc8),'m':(0x96,0x96,0x96),'n':(0x5a,0x5a,0x5a)}
+
+SYNC = [
+'................',
+'................',
+'................',
+'......OccO......',
+'....OOAaaAOO....',
+'...OAcOAAOcAO...',
+'...OAO.AA.OAO...',
+'..OOOOcAAcOOOO..',
+'..OGgO.ss.OGgO..',
+'..OgdO....OgdO..',
+'..OkrO....OkrO..',
+'..ObbO....ObbO..',
+'..OOOO....OOOO..',
+'...A........A...',
+'................',
+'................']
+# кожаный шлем: L/l/m/n — оттенки серого, перекрашиваются цветом шлема (слой 0)
+CAP = [
+'................',
+'................',
+'................',
+'.....nnnnnn.....',
+'....nLLLllmn....',
+'...nLLllllmmn...',
+'...nLllllllmn...',
+'...nlllllllmn...',
+'...nlllllmmmn...',
+'...nmmmmmmmmn...',
+'...nmn....nmn...',
+'...nnn....nnn...',
+'................',
+'................',
+'................',
+'................']
+# накладка (слой 1): усики, контакты и капсулы поверх шлема, не красятся
+OVER = [
+'................',
+'................',
+'.......cc.......',
+'.....c.AA.c.....',
+'......AAAA......',
+'.....A.AA.A.....',
+'....A..AA..A....',
+'..OOOO.ss.OOOO..',
+'..OGgO....OGgO..',
+'..OgdO....OgdO..',
+'..OkrO....OkrO..',
+'..OOOO....OOOO..',
+'................',
+'................',
+'................',
+'................']
 
 
-def bez(p0, p1, p2, n=40):
-    pts = []
-    for i in range(n + 1):
-        t = i / n
-        x = (1 - t) ** 2 * p0[0] + 2 * (1 - t) * t * p1[0] + t * t * p2[0]
-        y = (1 - t) ** 2 * p0[1] + 2 * (1 - t) * t * p1[1] + t * t * p2[1]
-        pts.append((round(x), round(y)))
-    return pts
-
-
-BAND, BAND_D, BAND_L = (0xdc, 0xe2, 0xe3), (0xa6, 0xae, 0xb0), (0xf4, 0xf7, 0xf7)
-SLEEVE = (0xf0, 0xf2, 0xf2)
-
-
-def synchronizer(leather=None):
-    """Синхронизатор по референсам ЭЭГ-гарнитур Антона (05.11): светлая дуга вокруг затылка,
-    капсулы на висках с резонирующим кристаллом и схемой, веер гибких усиков с бирюзовыми
-    контактами в белых насадках, снизу два крючка за ушами. leather — цвета кожаного шлема или None."""
+def sync_art(rows):
     im = icon()
-    P = lambda x, y, c: im.putpixel((x, y), c + (255,)) if 0 <= x < 16 and 0 <= y < 16 else None
-    if leather:
-        L, LD, LL = leather
-        for y in range(16):
-            for x in range(16):
-                ex, ey = (x + .5 - 8) / 6.6, (y + .5 - 10) / 8.0
-                if (ex * ex + ey * ey < 1 and y <= 11) or (11 < y <= 12 and 1 < x < 14):
-                    P(x, y, LL if x < 7 and y < 7 else LD if x > 10 else L)
-        base = {(x, y) for y in range(16) for x in range(16) if im.getpixel((x, y))[3]}
-        for (x, y) in base:
-            if any((x + a, y + b) not in base for a, b in ((1, 0), (-1, 0), (0, 1), (0, -1))):
-                P(x, y, tuple(v // 2 for v in LD))
-        arms = [((3, 7), (3, 3), (6, 2)), ((12, 7), (12, 3), (9, 2)), ((3, 7), (5, 5), (7, 5)), ((12, 7), (10, 5), (8, 5))]
-        pod_y = (4, 9)
-    else:
-        # вид спереди: каркас-шлем. Купол из гибких усиков по форме шлема, сзади дуга-обод,
-        # на висках капсулы, на пересечениях бирюзовые контакты
-        for x in range(3, 13):                                  # задняя дуга видна сквозь каркас
-            P(x, 9, BAND_D)
-        dome = [((2, 10), (1, -1), (8, 0)), ((13, 10), (14, -1), (7, 0)),       # внешний контур купола
-                ((4, 7), (4, 0), (8, 1)), ((11, 7), (11, 0), (7, 1)),           # внутренние меридианы
-                ((7, 1), (7, 4), (7, 7)), ((8, 1), (8, 4), (8, 7))]             # центральный
-        pts = set()
-        for a_ in dome:
-            pts |= set(bez(*a_, n=60))
-        pts = {(x, y) for x, y in pts if 0 <= x < 16 and 0 <= y < 16}
-        for (x, y) in pts:
-            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-                q = (x + dx, y + dy)
-                if q not in pts and 0 <= q[0] < 16 and 0 <= q[1] < 16 and not im.getpixel(q)[3]:
-                    P(*q, OUTL)
-        for (x, y) in pts:
-            P(x, y, ARM if y > 2 else (0x7a, 0x82, 0x84))
-        for q in ((7, 0), (8, 0), (4, 3), (11, 3), (2, 4), (13, 4), (7, 4), (8, 4)):
-            P(*q, CYAN)
-        for q in ((4, 7), (11, 7), (7, 7), (8, 7)):
-            P(*q, SLEEVE)                                       # насадки над лбом
-        arms = []
-        pod_y = (7, 12)
-    for a in arms:
-        for (x, y) in bez(*a)[:-6]:
-            P(x, y, ARM)
-    for a in arms:
-        pts = bez(*a)
-        x, y = pts[-1]
-        sx, sy = pts[-8]
-        P(sx, sy, SLEEVE); P(x, y, CYAN)
-    # капсулы на висках: кристалл сверху, под ним схема
-    y0, y1 = pod_y
-    for x0 in (1, 11):
-        for y in range(y0, y1 + 1):
-            for x in range(x0, x0 + 4):
-                edge = x in (x0, x0 + 3) or y in (y0, y1)
-                P(x, y, OUTL if edge else BAND if y < y1 - 1 else BAND_D)
-        P(x0 + 1, y0 + 1, GEM_L); P(x0 + 2, y0 + 1, GEM); P(x0 + 1, y0 + 2, GEM); P(x0 + 2, y0 + 2, GEM_D)
-        P(x0 + 1, y1 - 1, (0x3a, 0x7a, 0x3a)); P(x0 + 2, y1 - 1, (0xd0, 0x30, 0x30))
-    if not leather:
-        # крючки за ушами
-        for (x, y) in ((2, 13), (2, 14), (13, 13), (13, 14)):
-            P(x, y, ARM)
+    for y, r in enumerate(rows):
+        for x, ch in enumerate(r):
+            if ch != '.':
+                im.putpixel((x, y), SYNC_PAL[ch] + (255,))
     return im
 
 
@@ -314,8 +295,9 @@ def main():
     out = {
         'vacuum_syringe': syringe(0),
         'blood_sample': syringe(1),
-        'neuro_synchronizer': synchronizer(),
-        'neuro_synchronizer_leather': synchronizer((LEATHER, LEATHER_D, LEATHER_L)),
+        'neuro_synchronizer': sync_art(SYNC),
+        'neuro_synchronizer_leather': sync_art(CAP),
+        'neuro_synchronizer_leather_overlay': sync_art(OVER),
         'resonant_mixture': mixture(1.3),
         'resonant_crystal': core_icon(),
         'dimensional_anchor': art(MATRIX, P),
@@ -324,6 +306,10 @@ def main():
         im.save(os.path.join(items, name + '.png'))
     face32('side').save(os.path.join(blocks, 'replicator_casing_side.png'))
     face32('top').save(os.path.join(blocks, 'replicator_casing_top.png'))
+    # вид синхронизатора на голове пока пустой (прозрачный слой брони 64x32); своя модель — этап «Облик»
+    armor = os.path.join(ROOT, 'models', 'armor')
+    os.makedirs(armor, exist_ok=True)
+    Image.new('RGBA', (64, 32), (0, 0, 0, 0)).save(os.path.join(armor, 'neuro_synchronizer_layer_1.png'))
     print('ok: %d item(s), 2 block face(s)' % len(out))
 
 

@@ -1,5 +1,6 @@
 package dlx.matterrebirth.proxy;
 
+import dlx.matterrebirth.recipe.MRRecipes;
 import net.minecraftforge.fml.common.event.FMLInitializationEvent;
 import net.minecraftforge.fml.common.event.FMLPostInitializationEvent;
 import net.minecraftforge.fml.common.event.FMLPreInitializationEvent;
@@ -11,6 +12,7 @@ public class Proxy {
     }
 
     public void init(FMLInitializationEvent event) {
+        MRRecipes.init();
     }
 
     public void postInit(FMLPostInitializationEvent event) {

@@ -1,6 +1,7 @@
 {
   "parent": "item/generated",
   "textures": {
-    "layer0": "matterrebirth:items/neuro_synchronizer_leather"
+    "layer0": "matterrebirth:items/neuro_synchronizer_leather",
+    "layer1": "matterrebirth:items/neuro_synchronizer_leather_overlay"
   }
 }

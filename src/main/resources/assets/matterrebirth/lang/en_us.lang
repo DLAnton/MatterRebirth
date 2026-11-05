@@ -9,6 +9,24 @@ item.matterrebirth.resonant_crystal.name=Resonant Crystal
 item.matterrebirth.dimensional_anchor.name=Interdimensional Anchor
 tile.matterrebirth.replicator_casing.name=Replicator Construction Block
 
+item.matterrebirth.vacuum_syringe.tip1=Right-click: draw your own blood
+item.matterrebirth.vacuum_syringe.tip2=Can be given to another player
+item.matterrebirth.blood_sample.owner=Owner: %s
+item.matterrebirth.blood_sample.no_owner=unknown
+item.matterrebirth.blood_sample.tip1=Scan it in the IC2 Scanner
+item.matterrebirth.neuro_synchronizer.tip1=Neural headset, worn instead of a helmet
+item.matterrebirth.neuro_synchronizer.tip2=Moves your mind into a clone
+item.matterrebirth.neuro_synchronizer_leather.tip1=Can be dyed
+item.matterrebirth.neuro_synchronizer_leather.tip2=Cannot be enchanted
+item.matterrebirth.neuro_synchronizer_leather.tip3=Splits back on a crafting table
+item.matterrebirth.resonant_mixture.tip1=IC2 Compressor: 9 mixtures into a crystal
+item.matterrebirth.resonant_crystal.tip1=Component
+item.matterrebirth.dimensional_anchor.tip1=Clone replicator upgrade
+item.matterrebirth.dimensional_anchor.tip2=Mind transfer from other dimensions
+tile.matterrebirth.replicator_casing.tip1=Place two blocks on top of each other
+
+matterrebirth.ic2.dust.ender_eye=Ender Eye Dust
+
 matterrebirth.config.title=Matter Rebirth
 matterrebirth.config.general=General
 matterrebirth.config.general.tooltip=General settings

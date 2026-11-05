@@ -3,8 +3,12 @@ package dlx.matterrebirth.init;
 import dlx.matterrebirth.MatterRebirth;
 import dlx.matterrebirth.block.BlockReplicatorCasing;
 import dlx.matterrebirth.item.ItemBase;
+import dlx.matterrebirth.item.ItemBloodSample;
+import dlx.matterrebirth.item.ItemNeuroSynchronizer;
+import dlx.matterrebirth.item.ItemVacuumSyringe;
 import net.minecraft.block.Block;
 import net.minecraft.creativetab.CreativeTabs;
+import net.minecraft.item.EnumRarity;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemBlock;
 import net.minecraft.item.ItemStack;
@@ -16,8 +20,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Регистрация блоков и предметов. На этапе каркаса предметы — простые заготовки с иконками;
- * поведение (шприц, синхронизатор, репликатор) добавляется на следующих этапах.
+ * Регистрация блоков и предметов.
  */
 @Mod.EventBusSubscriber(modid = MatterRebirth.MOD_ID)
 public final class MRContent {
@@ -52,13 +55,13 @@ public final class MRContent {
 
     @SubscribeEvent
     public static void registerItems(RegistryEvent.Register<Item> event) {
-        vacuumSyringe = add(new ItemBase("vacuum_syringe", 16));
-        bloodSample = add(new ItemBase("blood_sample", 1));
-        neuroSynchronizer = add(new ItemBase("neuro_synchronizer", 1));
-        neuroSynchronizerLeather = add(new ItemBase("neuro_synchronizer_leather", 1));
+        vacuumSyringe = add(new ItemVacuumSyringe("vacuum_syringe"));
+        bloodSample = add(new ItemBloodSample("blood_sample"));
+        neuroSynchronizer = add(new ItemNeuroSynchronizer("neuro_synchronizer", false));
+        neuroSynchronizerLeather = add(new ItemNeuroSynchronizer("neuro_synchronizer_leather", true));
         resonantMixture = add(new ItemBase("resonant_mixture", 64));
         resonantCrystal = add(new ItemBase("resonant_crystal", 64));
-        dimensionalAnchor = add(new ItemBase("dimensional_anchor", 1));
+        dimensionalAnchor = add(new ItemBase("dimensional_anchor", 1).setRarity(EnumRarity.RARE));
         Item casing = new ItemBlock(replicatorCasing).setRegistryName(replicatorCasing.getRegistryName());
         add(casing);
         for (Item item : ITEMS) {

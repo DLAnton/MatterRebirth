@@ -9,6 +9,24 @@ item.matterrebirth.resonant_crystal.name=Резонирующий кристал
 item.matterrebirth.dimensional_anchor.name=Межпространственный якорь
 tile.matterrebirth.replicator_casing.name=Конструкционный блок репликатора
 
+item.matterrebirth.vacuum_syringe.tip1=ПКМ: взять кровь у себя
+item.matterrebirth.vacuum_syringe.tip2=Можно передать другому игроку
+item.matterrebirth.blood_sample.owner=Владелец: %s
+item.matterrebirth.blood_sample.no_owner=неизвестен
+item.matterrebirth.blood_sample.tip1=Отсканируйте в сканере IC2
+item.matterrebirth.neuro_synchronizer.tip1=Нейрогарнитура, носится вместо шлема
+item.matterrebirth.neuro_synchronizer.tip2=Переносит сознание в клон
+item.matterrebirth.neuro_synchronizer_leather.tip1=Можно покрасить
+item.matterrebirth.neuro_synchronizer_leather.tip2=Зачаровать нельзя
+item.matterrebirth.neuro_synchronizer_leather.tip3=Разбирается на верстаке
+item.matterrebirth.resonant_mixture.tip1=Компрессор IC2: 9 смесей в кристалл
+item.matterrebirth.resonant_crystal.tip1=Компонент
+item.matterrebirth.dimensional_anchor.tip1=Улучшение репликатора клонов
+item.matterrebirth.dimensional_anchor.tip2=Перенос сознания из других измерений
+tile.matterrebirth.replicator_casing.tip1=Поставьте два блока друг на друга
+
+matterrebirth.ic2.dust.ender_eye=Пыль ока Эндера
+
 matterrebirth.config.title=Matter Rebirth
 matterrebirth.config.general=Общие
 matterrebirth.config.general.tooltip=Общие настройки
