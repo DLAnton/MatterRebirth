@@ -1,0 +1,18 @@
+itemGroup.matterrebirth=Matter Rebirth
+
+item.matterrebirth.vacuum_syringe.name=Vacuum Syringe
+item.matterrebirth.blood_sample.name=Blood Sample
+item.matterrebirth.neuro_synchronizer.name=Neurosynchronizer
+item.matterrebirth.neuro_synchronizer_leather.name=Neurosynchronizer in Leather Cap
+item.matterrebirth.resonant_mixture.name=Resonant Mixture
+item.matterrebirth.resonant_crystal.name=Resonant Crystal
+item.matterrebirth.dimensional_anchor.name=Interdimensional Anchor
+tile.matterrebirth.replicator_casing.name=Replicator Construction Block
+
+matterrebirth.config.title=Matter Rebirth
+matterrebirth.config.general=General
+matterrebirth.config.general.tooltip=General settings
+matterrebirth.config.general.maxReplicatorsPerPlayer=Replicators per player
+matterrebirth.config.general.maxReplicatorsPerPlayer.tooltip=Each clone replicator keeps its chunk loaded. 0 means no limit.
+matterrebirth.config.general.soulboundEnchantments=Soulbound enchantments
+matterrebirth.config.general.soulboundEnchantments.tooltip=Enchantment ids that keep an item with the player when the mind moves into a clone.

@@ -1,0 +1,47 @@
+package dlx.matterrebirth.init;
+
+import dlx.matterrebirth.MatterRebirth;
+import net.minecraftforge.common.config.Config;
+import net.minecraftforge.common.config.ConfigManager;
+import net.minecraftforge.fml.client.event.ConfigChangedEvent;
+import net.minecraftforge.fml.common.Mod;
+import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
+
+/**
+ * Настройки мода (config/matterrebirth.cfg). Окно настроек Forge строится по этому классу само:
+ * Моды → Matter Rebirth → Настроить. Подписи и подсказки берутся из lang-файлов.
+ * Все числа стартовые (итоговый концепт 05.11.2026), уточняются при игре.
+ */
+@Config(modid = MatterRebirth.MOD_ID)
+@Config.LangKey("matterrebirth.config.title")
+public class MRConfig {
+
+    @Config.Name("general")
+    @Config.LangKey("matterrebirth.config.general")
+    public static final General GENERAL = new General();
+
+    public static class General {
+
+        @Config.Name("maxReplicatorsPerPlayer")
+        @Config.LangKey("matterrebirth.config.general.maxReplicatorsPerPlayer")
+        @Config.Comment("Maximum clone replicators per player (each keeps its chunk loaded). 0 = no limit.")
+        @Config.RangeInt(min = 0, max = 1000)
+        public int maxReplicatorsPerPlayer = 0;
+
+        @Config.Name("soulboundEnchantments")
+        @Config.LangKey("matterrebirth.config.general.soulboundEnchantments")
+        @Config.Comment("Enchantment ids that keep an item with the player on clone transfer.")
+        public String[] soulboundEnchantments = {"cofhcore:soulbound"};
+    }
+
+    @Mod.EventBusSubscriber(modid = MatterRebirth.MOD_ID)
+    public static class Events {
+
+        @SubscribeEvent
+        public static void onConfigChanged(ConfigChangedEvent.OnConfigChangedEvent event) {
+            if (MatterRebirth.MOD_ID.equals(event.getModID())) {
+                ConfigManager.sync(MatterRebirth.MOD_ID, Config.Type.INSTANCE);
+            }
+        }
+    }
+}

@@ -1,0 +1,18 @@
+itemGroup.matterrebirth=Matter Rebirth
+
+item.matterrebirth.vacuum_syringe.name=Вакуумный шприц
+item.matterrebirth.blood_sample.name=Образец крови
+item.matterrebirth.neuro_synchronizer.name=Нейросинхронизатор
+item.matterrebirth.neuro_synchronizer_leather.name=Нейросинхронизатор в кожаном шлеме
+item.matterrebirth.resonant_mixture.name=Резонирующая смесь
+item.matterrebirth.resonant_crystal.name=Резонирующий кристалл
+item.matterrebirth.dimensional_anchor.name=Межпространственный якорь
+tile.matterrebirth.replicator_casing.name=Конструкционный блок репликатора
+
+matterrebirth.config.title=Matter Rebirth
+matterrebirth.config.general=Общие
+matterrebirth.config.general.tooltip=Общие настройки
+matterrebirth.config.general.maxReplicatorsPerPlayer=Репликаторов на игрока
+matterrebirth.config.general.maxReplicatorsPerPlayer.tooltip=Каждый репликатор клонов держит свой чанк загруженным. 0 — без ограничения.
+matterrebirth.config.general.soulboundEnchantments=Зачарования «Печать души»
+matterrebirth.config.general.soulboundEnchantments.tooltip=Id зачарований, с которыми предмет остаётся у игрока при переносе сознания в клон.
