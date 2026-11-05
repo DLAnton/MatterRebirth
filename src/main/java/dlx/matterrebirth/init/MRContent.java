@@ -1,20 +1,24 @@
 package dlx.matterrebirth.init;
 
 import dlx.matterrebirth.MatterRebirth;
+import dlx.matterrebirth.block.BlockReplicator;
 import dlx.matterrebirth.block.BlockReplicatorCasing;
 import dlx.matterrebirth.item.ItemBase;
 import dlx.matterrebirth.item.ItemBloodSample;
 import dlx.matterrebirth.item.ItemNeuroSynchronizer;
 import dlx.matterrebirth.item.ItemVacuumSyringe;
+import dlx.matterrebirth.tile.TileReplicator;
 import net.minecraft.block.Block;
 import net.minecraft.creativetab.CreativeTabs;
 import net.minecraft.item.EnumRarity;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemBlock;
 import net.minecraft.item.ItemStack;
+import net.minecraft.util.ResourceLocation;
 import net.minecraftforge.event.RegistryEvent;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
+import net.minecraftforge.fml.common.registry.GameRegistry;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -35,6 +39,7 @@ public final class MRContent {
     };
 
     public static Block replicatorCasing;
+    public static Block replicator;
 
     public static Item vacuumSyringe;
     public static Item bloodSample;
@@ -50,7 +55,10 @@ public final class MRContent {
     @SubscribeEvent
     public static void registerBlocks(RegistryEvent.Register<Block> event) {
         replicatorCasing = new BlockReplicatorCasing("replicator_casing");
+        replicator = new BlockReplicator("replicator");
         event.getRegistry().register(replicatorCasing);
+        event.getRegistry().register(replicator);
+        GameRegistry.registerTileEntity(TileReplicator.class, new ResourceLocation(MatterRebirth.MOD_ID, "replicator"));
     }
 
     @SubscribeEvent

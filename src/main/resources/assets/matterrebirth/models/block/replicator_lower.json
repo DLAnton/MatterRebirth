@@ -1,0 +1,12 @@
+{
+  "parent": "block/cube",
+  "textures": {
+    "particle": "matterrebirth:blocks/replicator_panel",
+    "north": "matterrebirth:blocks/replicator_front",
+    "south": "matterrebirth:blocks/replicator_port",
+    "east": "matterrebirth:blocks/replicator_panel",
+    "west": "matterrebirth:blocks/replicator_panel",
+    "up": "matterrebirth:blocks/replicator_panel",
+    "down": "matterrebirth:blocks/replicator_port"
+  }
+}

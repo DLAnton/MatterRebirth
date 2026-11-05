@@ -23,6 +23,8 @@ item.matterrebirth.resonant_mixture.tip1=IC2 Compressor: 9 mixtures into a cryst
 item.matterrebirth.resonant_crystal.tip1=Component
 item.matterrebirth.dimensional_anchor.tip1=Clone replicator upgrade
 item.matterrebirth.dimensional_anchor.tip2=Mind transfer from other dimensions
+tile.matterrebirth.replicator.name=Clone Replicator
+message.matterrebirth.replicator.info=Clone Replicator. Owner: %s
 tile.matterrebirth.replicator_casing.tip1=Place two blocks on top of each other
 
 matterrebirth.ic2.dust.ender_eye=Ender Eye Dust
