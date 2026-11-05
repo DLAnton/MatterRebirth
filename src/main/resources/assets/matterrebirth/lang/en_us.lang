@@ -34,3 +34,5 @@ matterrebirth.config.general.maxReplicatorsPerPlayer=Replicators per player
 matterrebirth.config.general.maxReplicatorsPerPlayer.tooltip=Each clone replicator keeps its chunk loaded. 0 means no limit.
 matterrebirth.config.general.soulboundEnchantments=Soulbound enchantments
 matterrebirth.config.general.soulboundEnchantments.tooltip=Enchantment ids that keep an item with the player when the mind moves into a clone.
+matterrebirth.config.general.bloodSampleUu=Blood sample value, mB
+matterrebirth.config.general.bloodSampleUu.tooltip=UU-matter value of a blood sample pattern. The IC2 Scanner needs it, and the IC2 Replicator charges it for a copy of the sample.

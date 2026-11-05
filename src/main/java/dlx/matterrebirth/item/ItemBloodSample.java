@@ -2,9 +2,11 @@ package dlx.matterrebirth.item;
 
 import net.minecraft.client.resources.I18n;
 import net.minecraft.client.util.ITooltipFlag;
+import net.minecraft.creativetab.CreativeTabs;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NBTTagCompound;
+import net.minecraft.util.NonNullList;
 import net.minecraft.world.World;
 import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
@@ -35,6 +37,16 @@ public class ItemBloodSample extends ItemBase {
         return stack;
     }
 
+    /** Копия образца: один предмет, в NBT только владелец. Так выглядит шаблон в сканере IC2. */
+    public static ItemStack cleanCopy(ItemStack stack) {
+        ItemStack copy = new ItemStack(stack.getItem());
+        NBTTagCompound owner = stack.getSubCompound(TAG_OWNER);
+        if (owner != null) {
+            copy.setTagInfo(TAG_OWNER, owner.copy());
+        }
+        return copy;
+    }
+
     @Nullable
     public static UUID getOwnerId(ItemStack stack) {
         NBTTagCompound owner = stack.getSubCompound(TAG_OWNER);
@@ -45,6 +57,22 @@ public class ItemBloodSample extends ItemBase {
     public static String getOwnerName(ItemStack stack) {
         NBTTagCompound owner = stack.getSubCompound(TAG_OWNER);
         return owner != null && owner.hasKey(TAG_NAME) ? owner.getString(TAG_NAME) : null;
+    }
+
+    /**
+     * Во вкладке творческого режима (и в списке HEI) образца нет: без владельца он бесполезен,
+     * настоящий образец берут шприцем. Иконкой вкладки он остаётся.
+     */
+    @Override
+    public void getSubItems(CreativeTabs tab, NonNullList<ItemStack> items) {
+    }
+
+    /** Имя владельца в названии: его видно в окнах IC2 (сканер, хранилище) и в подсказке кристалла памяти. */
+    @Override
+    public String getItemStackDisplayName(ItemStack stack) {
+        String name = super.getItemStackDisplayName(stack);
+        String owner = getOwnerName(stack);
+        return owner != null ? name + " (" + owner + ")" : name;
     }
 
     @Override

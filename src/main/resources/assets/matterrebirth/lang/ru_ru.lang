@@ -34,3 +34,5 @@ matterrebirth.config.general.maxReplicatorsPerPlayer=Репликаторов н
 matterrebirth.config.general.maxReplicatorsPerPlayer.tooltip=Каждый репликатор клонов держит свой чанк загруженным. 0 — без ограничения.
 matterrebirth.config.general.soulboundEnchantments=Зачарования «Печать души»
 matterrebirth.config.general.soulboundEnchantments.tooltip=Id зачарований, с которыми предмет остаётся у игрока при переносе сознания в клон.
+matterrebirth.config.general.bloodSampleUu=Цена образца крови, mB
+matterrebirth.config.general.bloodSampleUu.tooltip=Ценность шаблона образца крови в UU-материи. Нужна сканеру IC2; столько же стоит копия образца в репликаторе IC2.

@@ -32,6 +32,12 @@ public class MRConfig {
         @Config.LangKey("matterrebirth.config.general.soulboundEnchantments")
         @Config.Comment("Enchantment ids that keep an item with the player on clone transfer.")
         public String[] soulboundEnchantments = {"cofhcore:soulbound"};
+
+        @Config.Name("bloodSampleUu")
+        @Config.LangKey("matterrebirth.config.general.bloodSampleUu")
+        @Config.Comment("UU-matter value of a blood sample pattern, in mB. The IC2 Scanner needs it, and the IC2 Replicator charges it for a copy of the sample.")
+        @Config.RangeInt(min = 1, max = 1000)
+        public int bloodSampleUu = 10;
     }
 
     @Mod.EventBusSubscriber(modid = MatterRebirth.MOD_ID)
