@@ -1,6 +1,7 @@
 package dlx.matterrebirth.tile;
 
 import dlx.matterrebirth.block.BlockReplicator;
+import dlx.matterrebirth.chunk.ReplicatorChunks;
 import dlx.matterrebirth.energy.ReplicatorSink;
 import dlx.matterrebirth.init.MRContent;
 import dlx.matterrebirth.inventory.ReplicatorAutomation;
@@ -67,6 +68,9 @@ public class TileReplicator extends TileEntity implements ITickable {
         }
     };
 
+    /** Билет загрузки чанка проверяется на первом тике машины на сервере. */
+    private boolean chunkTicketChecked;
+
     @Nullable
     private UUID ownerId;
     @Nullable
@@ -97,6 +101,11 @@ public class TileReplicator extends TileEntity implements ITickable {
         sink.update(); // в сеть IC2 встаём на первом тике, когда соседи уже загружены
         if (world.isRemote) {
             return;
+        }
+        if (!chunkTicketChecked) {
+            chunkTicketChecked = true;
+            // после перезахода билет уже восстановлен Forge (ReplicatorChunks.ticketsLoaded), тогда ничего не делается
+            ReplicatorChunks.ensure(world, pos, ownerId);
         }
         chargeReserve();
         fillFromContainer();

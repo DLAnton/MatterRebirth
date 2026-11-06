@@ -1,6 +1,7 @@
 package dlx.matterrebirth.proxy;
 
 import dlx.matterrebirth.MatterRebirth;
+import dlx.matterrebirth.chunk.ReplicatorChunks;
 import dlx.matterrebirth.compat.BogoSorterCompat;
 import dlx.matterrebirth.inventory.MRGuiHandler;
 import dlx.matterrebirth.recipe.MRRecipes;
@@ -17,6 +18,7 @@ public class Proxy {
 
     public void init(FMLInitializationEvent event) {
         MRRecipes.init();
+        ReplicatorChunks.init(); // до загрузки миров: Forge вернёт сохранённые билеты машин
         NetworkRegistry.INSTANCE.registerGuiHandler(MatterRebirth.instance, new MRGuiHandler());
     }
 

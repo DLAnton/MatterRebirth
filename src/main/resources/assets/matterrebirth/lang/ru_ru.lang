@@ -45,3 +45,5 @@ matterrebirth.config.general.soulboundEnchantments=Зачарования «Пе
 matterrebirth.config.general.soulboundEnchantments.tooltip=Id зачарований, с которыми предмет остаётся у игрока при переносе сознания в клон.
 matterrebirth.config.general.bloodSampleUu=Цена образца крови, mB
 matterrebirth.config.general.bloodSampleUu.tooltip=Ценность шаблона образца крови в UU-материи. Нужна сканеру IC2; столько же стоит копия образца в репликаторе IC2.
+message.matterrebirth.replicator_limit=Достигнут предел репликаторов клонов: %s
+message.matterrebirth.no_chunk_ticket=Репликатор клонов (%s, %s, %s) не держит свой чанк: у Forge закончились билеты загрузки чанков (forgeChunkLoading.cfg)

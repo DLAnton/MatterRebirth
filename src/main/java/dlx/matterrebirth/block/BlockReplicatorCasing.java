@@ -14,6 +14,7 @@ import net.minecraft.entity.EntityLivingBase;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.EnumFacing;
+import net.minecraft.util.EnumHand;
 import net.minecraft.item.ItemStack;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.World;
@@ -27,6 +28,8 @@ import java.util.List;
 /**
  * Конструкционный блок репликатора. Один — обычный блок корпуса; второй, поставленный на первый (или под него),
  * сам собирает оба в репликатор клонов (BlockReplicator.tryForm). Ключ IC2 снимает блок, как машины IC2.
+ * ПКМ по двум уже стоящим друг на друге блокам тоже собирает машину (например, если при установке мешал лимит,
+ * а потом его подняли); Shift+ПКМ ничего не делает, чтобы можно было ставить блоки рядом.
  */
 public class BlockReplicatorCasing extends Block implements IWrenchable {
 
@@ -45,6 +48,22 @@ public class BlockReplicatorCasing extends Block implements IWrenchable {
     public void onBlockPlacedBy(World world, BlockPos pos, IBlockState state, EntityLivingBase placer, ItemStack stack) {
         super.onBlockPlacedBy(world, pos, state, placer, stack);
         BlockReplicator.tryForm(world, pos, placer);
+    }
+
+    @Override
+    public boolean onBlockActivated(World world, BlockPos pos, IBlockState state, EntityPlayer player, EnumHand hand,
+                                    EnumFacing side, float hitX, float hitY, float hitZ) {
+        if (player.isSneaking()) {
+            return false;
+        }
+        boolean pair = world.getBlockState(pos.down()).getBlock() == this || world.getBlockState(pos.up()).getBlock() == this;
+        if (!pair) {
+            return false; // одиночный блок: клик проходит дальше (можно поставить второй блок сверху)
+        }
+        if (!world.isRemote && hand == EnumHand.MAIN_HAND) {
+            BlockReplicator.tryForm(world, pos, player); // те же проверки лимита и сообщение, что при установке
+        }
+        return true; // клик по паре съеден обеими руками, иначе из второй руки поставился бы блок
     }
 
     @Override

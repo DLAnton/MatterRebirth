@@ -1,6 +1,9 @@
 package dlx.matterrebirth.block;
 
 import dlx.matterrebirth.MatterRebirth;
+import dlx.matterrebirth.chunk.ReplicatorChunks;
+import dlx.matterrebirth.chunk.ReplicatorRegistry;
+import dlx.matterrebirth.init.MRConfig;
 import dlx.matterrebirth.init.MRContent;
 import dlx.matterrebirth.inventory.MRGuiHandler;
 import dlx.matterrebirth.tile.TileReplicator;
@@ -27,7 +30,9 @@ import net.minecraft.util.IStringSerializable;
 import net.minecraft.util.SoundCategory;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.RayTraceResult;
+import net.minecraft.util.text.TextComponentTranslation;
 import net.minecraft.world.World;
+import net.minecraftforge.common.util.FakePlayer;
 
 import javax.annotation.Nullable;
 import java.util.Collections;
@@ -68,6 +73,8 @@ public class BlockReplicator extends Block implements IWrenchable {
     /**
      * Пробует собрать машину после установки конструкционного блока: второй блок встал на первый
      * (или под него). Машина смотрит лицом на игрока, поставившего второй блок; он же владелец.
+     * Если в настройках задан лимит машин на игрока, игрок на лимите машину не соберёт (блоки остаются конструкционными),
+     * а без игрока (блок поставила автоматика) машина при включённом лимите не собирается вовсе, иначе лимит легко обойти.
      */
     public static void tryForm(World world, BlockPos placed, @Nullable EntityLivingBase placer) {
         if (world.isRemote) {
@@ -82,6 +89,17 @@ public class BlockReplicator extends Block implements IWrenchable {
         } else {
             return;
         }
+        int limit = MRConfig.GENERAL.maxReplicatorsPerPlayer;
+        ReplicatorRegistry registry = ReplicatorRegistry.get(world);
+        if (limit > 0) {
+            if (!(placer instanceof EntityPlayer) || placer instanceof FakePlayer) {
+                return; // автоматика (в том числе «поддельные игроки» модов) при включённом лимите не собирает
+            }
+            if (registry.count(placer.getUniqueID()) >= limit) {
+                ((EntityPlayer) placer).sendStatusMessage(new TextComponentTranslation("message.matterrebirth.replicator_limit", limit), false);
+                return;
+            }
+        }
         EnumFacing facing = placer != null ? placer.getHorizontalFacing().getOpposite() : EnumFacing.NORTH;
         IBlockState base = MRContent.replicator.getDefaultState().withProperty(FACING, facing);
         world.setBlockState(lower, base.withProperty(PART, Part.LOWER), 3);
@@ -89,6 +107,7 @@ public class BlockReplicator extends Block implements IWrenchable {
         TileEntity te = world.getTileEntity(lower);
         if (te instanceof TileReplicator && placer instanceof EntityPlayer) {
             ((TileReplicator) te).setOwner((EntityPlayer) placer);
+            registry.add(placer.getUniqueID(), world.provider.getDimension(), lower);
         }
         world.playSound(null, lower.up(), SoundEvents.BLOCK_PISTON_EXTEND, SoundCategory.BLOCKS, 0.6F, 1.4F);
     }
@@ -112,9 +131,15 @@ public class BlockReplicator extends Block implements IWrenchable {
     @Override
     public void breakBlock(World world, BlockPos pos, IBlockState state) {
         // Содержимое слотов выпадает, как у машин IC2 (до того, как нижняя часть снова станет блоком и потеряет слоты)
-        TileEntity te = world.getTileEntity(lowerPos(state, pos));
+        BlockPos lower = lowerPos(state, pos);
+        TileEntity te = world.getTileEntity(lower);
         if (te instanceof TileReplicator) {
             ((TileReplicator) te).dropContents(world, pos);
+        }
+        // машины больше нет: чанк отпускаем, место в лимите владельца освобождаем (при сломе обеих частей вызов повторный, это безопасно)
+        if (!world.isRemote) {
+            ReplicatorChunks.release(world, lower);
+            ReplicatorRegistry.get(world).remove(world.provider.getDimension(), lower);
         }
         BlockPos other = state.getValue(PART) == Part.LOWER ? pos.up() : pos.down();
         if (world.getBlockState(other).getBlock() == this) {

@@ -45,3 +45,5 @@ matterrebirth.config.general.soulboundEnchantments=Soulbound enchantments
 matterrebirth.config.general.soulboundEnchantments.tooltip=Enchantment ids that keep an item with the player when the mind moves into a clone.
 matterrebirth.config.general.bloodSampleUu=Blood sample value, mB
 matterrebirth.config.general.bloodSampleUu.tooltip=UU-matter value of a blood sample pattern. The IC2 Scanner needs it, and the IC2 Replicator charges it for a copy of the sample.
+message.matterrebirth.replicator_limit=Clone replicator limit reached: %s
+message.matterrebirth.no_chunk_ticket=Clone replicator (%s, %s, %s) cannot keep its chunk loaded: Forge has no chunk loading tickets left (forgeChunkLoading.cfg)
