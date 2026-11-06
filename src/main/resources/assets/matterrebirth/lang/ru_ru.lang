@@ -25,8 +25,10 @@ item.matterrebirth.dimensional_anchor.tip1=Улучшение репликато
 item.matterrebirth.dimensional_anchor.tip2=Перенос сознания из других измерений
 tile.matterrebirth.replicator.name=Репликатор клонов
 message.matterrebirth.replicator.info=Репликатор клонов. Владелец: %s
+message.matterrebirth.replicator.energy=Заряд: %s / %s EU (для разработки)
 tile.matterrebirth.replicator_casing.tip1=Поставьте два блока друг на друга
 
+matterrebirth.ic2.dust.ender_pearl=Пыль жемчуга Края
 matterrebirth.ic2.dust.ender_eye=Пыль ока Эндера
 
 matterrebirth.config.title=Matter Rebirth

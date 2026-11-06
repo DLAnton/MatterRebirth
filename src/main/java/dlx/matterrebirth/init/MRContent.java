@@ -8,6 +8,7 @@ import dlx.matterrebirth.item.ItemBloodSample;
 import dlx.matterrebirth.item.ItemNeuroSynchronizer;
 import dlx.matterrebirth.item.ItemVacuumSyringe;
 import dlx.matterrebirth.tile.TileReplicator;
+import dlx.matterrebirth.tile.TileReplicatorUpper;
 import net.minecraft.block.Block;
 import net.minecraft.creativetab.CreativeTabs;
 import net.minecraft.item.EnumRarity;
@@ -59,6 +60,7 @@ public final class MRContent {
         event.getRegistry().register(replicatorCasing);
         event.getRegistry().register(replicator);
         GameRegistry.registerTileEntity(TileReplicator.class, new ResourceLocation(MatterRebirth.MOD_ID, "replicator"));
+        GameRegistry.registerTileEntity(TileReplicatorUpper.class, new ResourceLocation(MatterRebirth.MOD_ID, "replicator_upper"));
     }
 
     @SubscribeEvent

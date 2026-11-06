@@ -3,6 +3,7 @@ package dlx.matterrebirth.block;
 import dlx.matterrebirth.MatterRebirth;
 import dlx.matterrebirth.init.MRContent;
 import dlx.matterrebirth.tile.TileReplicator;
+import dlx.matterrebirth.tile.TileReplicatorUpper;
 import ic2.api.tile.IWrenchable;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockHorizontal;
@@ -118,6 +119,12 @@ public class BlockReplicator extends Block implements IWrenchable {
             String owner = te instanceof TileReplicator ? ((TileReplicator) te).getOwnerName() : null;
             player.sendMessage(new TextComponentTranslation("message.matterrebirth.replicator.info",
                     owner != null ? owner : "?"));
+            // Только для разработки (шаг 3б): заряд в чате. Уберём, когда появится окно.
+            if (te instanceof TileReplicator) {
+                TileReplicator rep = (TileReplicator) te;
+                player.sendMessage(new TextComponentTranslation("message.matterrebirth.replicator.energy",
+                        (long) rep.getSink().getEnergyStored(), (long) rep.getSink().getCapacity()));
+            }
         }
         return true;
     }
@@ -176,13 +183,13 @@ public class BlockReplicator extends Block implements IWrenchable {
 
     @Override
     public boolean hasTileEntity(IBlockState state) {
-        return state.getValue(PART) == Part.LOWER;
+        return true;
     }
 
     @Nullable
     @Override
     public TileEntity createTileEntity(World world, IBlockState state) {
-        return state.getValue(PART) == Part.LOWER ? new TileReplicator() : null;
+        return state.getValue(PART) == Part.LOWER ? new TileReplicator() : new TileReplicatorUpper();
     }
 
     @Override

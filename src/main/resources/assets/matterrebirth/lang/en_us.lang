@@ -25,8 +25,10 @@ item.matterrebirth.dimensional_anchor.tip1=Clone replicator upgrade
 item.matterrebirth.dimensional_anchor.tip2=Mind transfer from other dimensions
 tile.matterrebirth.replicator.name=Clone Replicator
 message.matterrebirth.replicator.info=Clone Replicator. Owner: %s
+message.matterrebirth.replicator.energy=Charge: %s / %s EU (dev)
 tile.matterrebirth.replicator_casing.tip1=Place two blocks on top of each other
 
+matterrebirth.ic2.dust.ender_pearl=Ender Pearl Dust
 matterrebirth.ic2.dust.ender_eye=Ender Eye Dust
 
 matterrebirth.config.title=Matter Rebirth

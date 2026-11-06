@@ -34,7 +34,7 @@ public final class MRRecipes {
 
     /** Вызывается в init: к этому моменту предметы и менеджеры рецептов IC2 готовы. */
     public static void init() {
-        ItemStack enderEyeDust = ic2("dust", "ender_eye");
+        ItemStack enderPearlDust = ic2("dust", "ender_pearl");
         ItemStack energiumDust = ic2("dust", "energium");
         ItemStack lithiumDust = ic2("dust", "lithium");
         ItemStack ironCasing = ic2("casing", "iron");
@@ -52,10 +52,10 @@ public final class MRRecipes {
         shaped(new ItemStack(MRContent.vacuumSyringe),
                 "  O", " R ", "FF ", 'O', ironCasing, 'R', "itemRubber", 'F', "paneGlass");
 
-        // Резонирующая смесь: 4 пыли ока Эндера, 4 энергетические, литиевая (без формы) → 9 смесей
-        if (enderEyeDust != null && energiumDust != null && lithiumDust != null) {
+        // Резонирующая смесь: 4 пыли жемчуга Края, 4 энергетические, литиевая (без формы) → 9 смесей (жемчуг, 06.11)
+        if (enderPearlDust != null && energiumDust != null && lithiumDust != null) {
             Recipes.advRecipes.addShapelessRecipe(new ItemStack(MRContent.resonantMixture, 9),
-                    enderEyeDust, enderEyeDust, enderEyeDust, enderEyeDust,
+                    enderPearlDust, enderPearlDust, enderPearlDust, enderPearlDust,
                     energiumDust, energiumDust, energiumDust, energiumDust, lithiumDust);
         }
 

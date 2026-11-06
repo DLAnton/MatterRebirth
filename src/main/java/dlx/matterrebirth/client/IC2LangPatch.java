@@ -13,14 +13,14 @@ import java.lang.reflect.Method;
 import java.util.Map;
 
 /**
- * У пыли ока Эндера IC2 (ic2:dust#ender_eye) нет перевода, кроме английского. IC2 держит свои переводы в отдельных
+ * У пыли жемчуга Края и пыли ока Эндера IC2 (ic2:dust#ender_pearl, #ender_eye) нет перевода, кроме английского. IC2 держит свои переводы в отдельных
  * файлах и после каждой загрузки ресурсов заново пишет их в таблицы перевода игры. Поэтому мы подписываемся после
  * IC2 и дописываем недостающие ключи из своего lang-файла (matterrebirth.ic2.<ключ> → ic2.<ключ>).
  */
 @SideOnly(Side.CLIENT)
 public final class IC2LangPatch implements IResourceManagerReloadListener {
 
-    private static final String[] KEYS = {"dust.ender_eye"};
+    private static final String[] KEYS = {"dust.ender_pearl", "dust.ender_eye"};
 
     private IC2LangPatch() {
     }
