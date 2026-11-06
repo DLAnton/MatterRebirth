@@ -89,7 +89,9 @@ public class ReplicatorInventory extends ItemStackHandler {
                 return left;
             }
         }
-        return super.insertItem(slot, stack, simulate);
+        // копия: ItemStackHandler кладёт в пустой слот сам переданный объект, и потом чужой код,
+        // уменьшая свою стопку, менял бы и нашу (так пропадали улучшения при Shift-клике)
+        return super.insertItem(slot, simulate ? stack : stack.copy(), simulate);
     }
 
     @Override
@@ -137,7 +139,7 @@ public class ReplicatorInventory extends ItemStackHandler {
 
     /** Машина сама кладёт в выходные слоты (капсулы, плоть) в обход правил для игрока. */
     public ItemStack insertInternal(int slot, ItemStack stack, boolean simulate) {
-        return super.insertItem(slot, stack, simulate);
+        return super.insertItem(slot, simulate ? stack : stack.copy(), simulate);
     }
 
     public enum Upgrade { NONE, OVERCLOCKER, TRANSFORMER, ENERGY_STORAGE, EJECTOR, ANCHOR }
@@ -159,7 +161,7 @@ public class ReplicatorInventory extends ItemStackHandler {
             return Upgrade.ENERGY_STORAGE;
         }
         if (same(stack, "ejector")) {
-            return Upgrade.EJECTOR; // сама машина выталкивает гнилую плоть только с ним (шаг 3г)
+            return Upgrade.EJECTOR; // сама машина выталкивает пустые капсулы и гнилую плоть только с ним
         }
         return Upgrade.NONE;
     }

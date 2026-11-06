@@ -30,6 +30,7 @@ gui.matterrebirth.replicator.tier_plain=Уровень %s
 gui.matterrebirth.replicator.charge=Заряд: %s / %s EU
 gui.matterrebirth.replicator.no_pattern=Шаблон не выбран
 gui.matterrebirth.replicator.tank_empty=Пусто
+gui.matterrebirth.replicator.tank=UU-материя: %s / %s mB
 tile.matterrebirth.replicator_casing.tip1=Поставьте два блока друг на друга
 
 matterrebirth.ic2.dust.ender_pearl=Пыль жемчуга Края

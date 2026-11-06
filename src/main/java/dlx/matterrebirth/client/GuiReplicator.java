@@ -5,13 +5,21 @@ import dlx.matterrebirth.inventory.ContainerReplicator;
 import dlx.matterrebirth.inventory.ReplicatorInventory;
 import dlx.matterrebirth.tile.TileReplicator;
 import net.minecraft.client.gui.inventory.GuiContainer;
+import net.minecraft.client.renderer.BufferBuilder;
 import net.minecraft.client.renderer.GlStateManager;
+import net.minecraft.client.renderer.Tessellator;
+import net.minecraft.client.renderer.texture.TextureAtlasSprite;
+import net.minecraft.client.renderer.texture.TextureMap;
+import net.minecraft.client.renderer.vertex.DefaultVertexFormats;
 import net.minecraft.client.resources.I18n;
 import net.minecraft.entity.player.InventoryPlayer;
 import net.minecraft.item.ItemStack;
 import net.minecraft.util.ResourceLocation;
+import net.minecraftforge.fluids.Fluid;
+import net.minecraftforge.fluids.FluidRegistry;
 import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
+import org.lwjgl.opengl.GL11;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -64,7 +72,9 @@ public class GuiReplicator extends GuiContainer {
             tip.add(name.isEmpty() ? I18n.format("gui.matterrebirth.replicator.tier_plain", container.getTier())
                     : I18n.format("gui.matterrebirth.replicator.tier", container.getTier(), name));
         } else if (mx >= TANK_X && mx < TANK_X + 20 && my >= TANK_Y && my < TANK_Y + TANK_H) {
-            tip.add(I18n.format("gui.matterrebirth.replicator.tank_empty"));
+            int amount = container.getFluid();
+            tip.add(amount > 0 ? I18n.format("gui.matterrebirth.replicator.tank", amount, TileReplicator.TANK_CAPACITY)
+                    : I18n.format("gui.matterrebirth.replicator.tank_empty"));
         }
         if (!tip.isEmpty()) {
             drawHoveringText(tip, mouseX, mouseY);
@@ -91,9 +101,17 @@ public class GuiReplicator extends GuiContainer {
         }
 
         mc.getTextureManager().bindTexture(IC2_COMMON);
-        // бак пока всегда пустой: приём UU появится в шаге 3г, тогда здесь будет второе состояние (фон 6, шкала 38)
-        drawTankFrame(70, guiLeft + TANK_X, guiTop + TANK_Y, TANK_H);
-        drawTankTicks(70, guiLeft + TANK_X, guiTop + TANK_Y, TANK_H);
+        // два состояния бака, как у IC2: пустой (70) или фон (6) + жидкость + шкала поверх (38)
+        int tx = guiLeft + TANK_X, ty = guiTop + TANK_Y;
+        if (container.getFluid() > 0) {
+            drawTankFrame(6, tx, ty, TANK_H);
+            drawFluid(tx + 4, ty + 4, 12, TANK_H - 8, container.getFluid(), TileReplicator.TANK_CAPACITY);
+            mc.getTextureManager().bindTexture(IC2_COMMON);
+            drawTankTicks(38, tx, ty, TANK_H);
+        } else {
+            drawTankFrame(70, tx, ty, TANK_H);
+            drawTankTicks(70, tx, ty, TANK_H);
+        }
         drawTexturedModalRect(guiLeft + BOLT_X - 4, guiTop + BOLT_Y - 1, 96, 64, 16, 16);
         int cap = container.getCapacity();
         if (cap > 0 && container.getEnergy() > 0) {
@@ -109,6 +127,34 @@ public class GuiReplicator extends GuiContainer {
             drawTexturedModalRect(x, y + r, u, 104, 20, 1);
         }
         drawTexturedModalRect(x, y + h - 4, u, 151, 20, 4);
+    }
+
+    /** Жидкая UU снизу вверх по объёму: текстура жидкости кусками 16x16, как в баках IC2. */
+    private void drawFluid(int x, int y, int w, int h, int amount, int capacity) {
+        Fluid fluid = FluidRegistry.getFluid(ReplicatorInventory.UU_FLUID);
+        if (fluid == null || fluid.getStill() == null || amount <= 0 || capacity <= 0) {
+            return;
+        }
+        int fh = Math.max(1, Math.min(h, Math.round((float) h * amount / capacity))); // капля тоже видна
+        TextureAtlasSprite sprite = mc.getTextureMapBlocks().getAtlasSprite(fluid.getStill().toString());
+        mc.getTextureManager().bindTexture(TextureMap.LOCATION_BLOCKS_TEXTURE);
+        int color = fluid.getColor();
+        GlStateManager.color(((color >> 16) & 0xFF) / 255f, ((color >> 8) & 0xFF) / 255f, (color & 0xFF) / 255f, 1f);
+        Tessellator tess = Tessellator.getInstance();
+        BufferBuilder buf = tess.getBuffer();
+        buf.begin(GL11.GL_QUADS, DefaultVertexFormats.POSITION_TEX);
+        float u0 = sprite.getMinU(), u1 = sprite.getInterpolatedU(Math.min(16, w));
+        for (int done = 0; done < fh; done += 16) {
+            int part = Math.min(16, fh - done);
+            int bottom = y + h - done, top = bottom - part;
+            float v0 = sprite.getInterpolatedV(16 - part), v1 = sprite.getMaxV();
+            buf.pos(x, bottom, zLevel).tex(u0, v1).endVertex();
+            buf.pos(x + w, bottom, zLevel).tex(u1, v1).endVertex();
+            buf.pos(x + w, top, zLevel).tex(u1, v0).endVertex();
+            buf.pos(x, top, zLevel).tex(u0, v0).endVertex();
+        }
+        tess.draw();
+        GlStateManager.color(1, 1, 1, 1);
     }
 
     /** Деления шкалы: 7 штук на 8 равных частей, средняя длинная. */

@@ -98,6 +98,17 @@ public class BlockReplicator extends Block implements IWrenchable {
         return state.getValue(PART) == Part.LOWER ? pos : pos.down();
     }
 
+    /**
+     * Порт ли эта грань части машины: задняя грань каждой части, нижняя у нижней и верхняя у верхней.
+     * Через порты идут энергия, UU и автоматика.
+     */
+    public static boolean isPort(IBlockState state, EnumFacing side) {
+        if (side == state.getValue(FACING).getOpposite()) {
+            return true;
+        }
+        return side == (state.getValue(PART) == Part.LOWER ? EnumFacing.DOWN : EnumFacing.UP);
+    }
+
     @Override
     public void breakBlock(World world, BlockPos pos, IBlockState state) {
         // Содержимое слотов выпадает, как у машин IC2 (до того, как нижняя часть снова станет блоком и потеряет слоты)

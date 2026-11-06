@@ -25,10 +25,12 @@ public class ContainerReplicator extends Container {
     private int energy;
     private int capacity;
     private int tier;
+    private int fluid;
     // последние отправленные значения на сервере
     private int sentEnergy = -1;
     private int sentCapacity = -1;
     private int sentTier = -1;
+    private int sentFluid = -1;
 
     public ContainerReplicator(InventoryPlayer playerInv, TileReplicator tile) {
         this.tile = tile;
@@ -79,6 +81,7 @@ public class ContainerReplicator extends Container {
         int e = (int) tile.getSink().getEnergyStored();
         int c = (int) tile.getSink().getCapacity();
         int t = tile.getSink().getSinkTier();
+        int f = tile.getTank().getFluidAmount(); // до 16000, в short помещается целиком
         for (IContainerListener l : listeners) {
             if (e != sentEnergy) {
                 l.sendWindowProperty(this, 0, e & 0x7FFF);
@@ -91,10 +94,14 @@ public class ContainerReplicator extends Container {
             if (t != sentTier) {
                 l.sendWindowProperty(this, 4, t);
             }
+            if (f != sentFluid) {
+                l.sendWindowProperty(this, 5, f);
+            }
         }
         sentEnergy = e;
         sentCapacity = c;
         sentTier = t;
+        sentFluid = f;
     }
 
     @Override
@@ -106,6 +113,7 @@ public class ContainerReplicator extends Container {
             case 2: capacity = (capacity & ~0x7FFF) | data; break;
             case 3: capacity = (capacity & 0x7FFF) | (data << 15); break;
             case 4: tier = data; break;
+            case 5: fluid = data; break;
             default: break;
         }
     }
@@ -120,6 +128,11 @@ public class ContainerReplicator extends Container {
 
     public int getTier() {
         return tier;
+    }
+
+    /** Сколько UU в баке, mB (на клиенте). */
+    public int getFluid() {
+        return fluid;
     }
 
     // --- Shift-клик ---

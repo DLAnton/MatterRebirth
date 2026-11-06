@@ -30,6 +30,7 @@ gui.matterrebirth.replicator.tier_plain=Tier %s
 gui.matterrebirth.replicator.charge=Charge: %s / %s EU
 gui.matterrebirth.replicator.no_pattern=No pattern selected
 gui.matterrebirth.replicator.tank_empty=Empty
+gui.matterrebirth.replicator.tank=UU-Matter: %s / %s mB
 tile.matterrebirth.replicator_casing.tip1=Place two blocks on top of each other
 
 matterrebirth.ic2.dust.ender_pearl=Ender Pearl Dust
