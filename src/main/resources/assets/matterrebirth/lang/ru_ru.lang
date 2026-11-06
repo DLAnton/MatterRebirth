@@ -24,8 +24,12 @@ item.matterrebirth.resonant_crystal.tip1=Компонент
 item.matterrebirth.dimensional_anchor.tip1=Улучшение репликатора клонов
 item.matterrebirth.dimensional_anchor.tip2=Перенос сознания из других измерений
 tile.matterrebirth.replicator.name=Репликатор клонов
-message.matterrebirth.replicator.info=Репликатор клонов. Владелец: %s
-message.matterrebirth.replicator.energy=Заряд: %s / %s EU (для разработки)
+gui.matterrebirth.replicator.idle=Ожидание
+gui.matterrebirth.replicator.tier=Уровень %s (%s)
+gui.matterrebirth.replicator.tier_plain=Уровень %s
+gui.matterrebirth.replicator.charge=Заряд: %s / %s EU
+gui.matterrebirth.replicator.no_pattern=Шаблон не выбран
+gui.matterrebirth.replicator.tank_empty=Пусто
 tile.matterrebirth.replicator_casing.tip1=Поставьте два блока друг на друга
 
 matterrebirth.ic2.dust.ender_pearl=Пыль жемчуга Края

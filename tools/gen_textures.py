@@ -287,6 +287,29 @@ def face32(kind):
     return im
 
 
+def anchor_upgrade():
+    """Межпространственный якорь в стиле улучшений IC2: серая пластина 12x12 с фаской и знак 10x10."""
+    im = Image.new('RGBA', (16, 16), (0, 0, 0, 0))
+    px = im.putpixel
+    hi, fill, sh, sh2 = (170, 170, 170, 255), (150, 150, 150, 255), (112, 112, 112, 255), (138, 136, 136, 255)
+    for x in range(2, 14):
+        for y in range(2, 14):
+            px((x, y), fill)
+    for i in range(2, 13):
+        px((i, 2), hi); px((2, i), hi)
+        px((13, i + 1), sh); px((i + 1, 13), sh)
+    px((13, 2), sh2); px((2, 13), sh2)
+    pal = {'P': (85, 22, 120), 'p': (126, 38, 166), 'd': (30, 110, 116), 't': (42, 156, 164),
+           'L': (108, 236, 232), 'W': (220, 255, 252)}
+    glyph = ['....PP....', '....pp....', '...dttd...', '..dtLLtd..', 'PptLWWLtpP',
+             'PptLWWLtpP', '..dtLLtd..', '...dttd...', '....pp....', '....PP....']
+    for j, row in enumerate(glyph):
+        for i, ch in enumerate(row):
+            if ch != '.':
+                px((3 + i, 3 + j), pal[ch] + (255,))
+    return im
+
+
 def main():
     items = os.path.join(ROOT, 'items')
     blocks = os.path.join(ROOT, 'blocks')
@@ -300,7 +323,7 @@ def main():
         'neuro_synchronizer_leather_overlay': sync_art(OVER),
         'resonant_mixture': mixture(1.3),
         'resonant_crystal': core_icon(),
-        'dimensional_anchor': art(MATRIX, P),
+        'dimensional_anchor': anchor_upgrade(),
     }
     for name, im in out.items():
         im.save(os.path.join(items, name + '.png'))

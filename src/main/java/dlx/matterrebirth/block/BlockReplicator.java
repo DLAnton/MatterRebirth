@@ -2,6 +2,7 @@ package dlx.matterrebirth.block;
 
 import dlx.matterrebirth.MatterRebirth;
 import dlx.matterrebirth.init.MRContent;
+import dlx.matterrebirth.inventory.MRGuiHandler;
 import dlx.matterrebirth.tile.TileReplicator;
 import dlx.matterrebirth.tile.TileReplicatorUpper;
 import ic2.api.tile.IWrenchable;
@@ -26,7 +27,6 @@ import net.minecraft.util.IStringSerializable;
 import net.minecraft.util.SoundCategory;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.RayTraceResult;
-import net.minecraft.util.text.TextComponentTranslation;
 import net.minecraft.world.World;
 
 import javax.annotation.Nullable;
@@ -100,6 +100,11 @@ public class BlockReplicator extends Block implements IWrenchable {
 
     @Override
     public void breakBlock(World world, BlockPos pos, IBlockState state) {
+        // Содержимое слотов выпадает, как у машин IC2 (до того, как нижняя часть снова станет блоком и потеряет слоты)
+        TileEntity te = world.getTileEntity(lowerPos(state, pos));
+        if (te instanceof TileReplicator) {
+            ((TileReplicator) te).dropContents(world, pos);
+        }
         BlockPos other = state.getValue(PART) == Part.LOWER ? pos.up() : pos.down();
         if (world.getBlockState(other).getBlock() == this) {
             world.setBlockState(other, MRContent.replicatorCasing.getDefaultState(), 3);
@@ -114,16 +119,9 @@ public class BlockReplicator extends Block implements IWrenchable {
             return false;
         }
         if (!world.isRemote && hand == EnumHand.MAIN_HAND) {
-            // Пока окна нет (шаг «Окно» этапа 3), машина сообщает о себе в чат.
-            TileEntity te = world.getTileEntity(lowerPos(state, pos));
-            String owner = te instanceof TileReplicator ? ((TileReplicator) te).getOwnerName() : null;
-            player.sendMessage(new TextComponentTranslation("message.matterrebirth.replicator.info",
-                    owner != null ? owner : "?"));
-            // Только для разработки (шаг 3б): заряд в чате. Уберём, когда появится окно.
-            if (te instanceof TileReplicator) {
-                TileReplicator rep = (TileReplicator) te;
-                player.sendMessage(new TextComponentTranslation("message.matterrebirth.replicator.energy",
-                        (long) rep.getSink().getEnergyStored(), (long) rep.getSink().getCapacity()));
+            BlockPos lower = lowerPos(state, pos);
+            if (world.getTileEntity(lower) instanceof TileReplicator) {
+                player.openGui(MatterRebirth.instance, MRGuiHandler.REPLICATOR, world, lower.getX(), lower.getY(), lower.getZ());
             }
         }
         return true;

@@ -24,8 +24,12 @@ item.matterrebirth.resonant_crystal.tip1=Component
 item.matterrebirth.dimensional_anchor.tip1=Clone replicator upgrade
 item.matterrebirth.dimensional_anchor.tip2=Mind transfer from other dimensions
 tile.matterrebirth.replicator.name=Clone Replicator
-message.matterrebirth.replicator.info=Clone Replicator. Owner: %s
-message.matterrebirth.replicator.energy=Charge: %s / %s EU (dev)
+gui.matterrebirth.replicator.idle=Idle
+gui.matterrebirth.replicator.tier=Tier %s (%s)
+gui.matterrebirth.replicator.tier_plain=Tier %s
+gui.matterrebirth.replicator.charge=Charge: %s / %s EU
+gui.matterrebirth.replicator.no_pattern=No pattern selected
+gui.matterrebirth.replicator.tank_empty=Empty
 tile.matterrebirth.replicator_casing.tip1=Place two blocks on top of each other
 
 matterrebirth.ic2.dust.ender_pearl=Ender Pearl Dust
