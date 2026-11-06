@@ -1,5 +1,8 @@
 # Matter Rebirth
 
+> ### *Not today.*
+> Even on Hardcore, death is not the end: you get a second chance. Or more than one.
+
 Unofficial addon for **IndustrialCraft 2 Experimental** (Minecraft 1.12.2, Forge).
 
 Grow inactive clones of yourself from liquid UU-Matter. If you die while wearing a Neurosynchronizer
