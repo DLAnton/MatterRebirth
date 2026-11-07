@@ -38,6 +38,13 @@ public class MRConfig {
         @Config.Comment("UU-matter value of a blood sample pattern, in mB. The IC2 Scanner needs it, and the IC2 Replicator charges it for a copy of the sample.")
         @Config.RangeInt(min = 1, max = 1000)
         public int bloodSampleUu = 10;
+
+        // TODO(релиз): ОТЛАДКА — убрать перед выпуском (просьба Антона 07.11). Ускоряет репликатор для проверок отката и т.п.
+        @Config.Name("debugReplicatorSpeed")
+        @Config.LangKey("matterrebirth.config.general.debugReplicatorSpeed")
+        @Config.Comment("DEBUG, will be removed before release: replicator runs this many of its own ticks per game tick (growth, keeping, rollback). 1 = normal.")
+        @Config.RangeInt(min = 1, max = 100)
+        public int debugReplicatorSpeed = 1;
     }
 
     @Mod.EventBusSubscriber(modid = MatterRebirth.MOD_ID)

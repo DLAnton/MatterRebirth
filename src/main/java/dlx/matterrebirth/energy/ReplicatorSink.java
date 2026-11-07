@@ -17,6 +17,10 @@ import javax.annotation.Nullable;
  * нижняя грань нижней и верхняя грань верхней. Уровень 3 (HV): напряжение выше IC2 обрабатывает сама,
  * по своей настройке enableEnetExplosions (взрыв или нет).
  * Запас хранит нижняя часть; приёмник верхней части передаёт всё ей.
+ * Сверх места в запасе нижняя часть просит у сети заряд для кристалла резерва: запас наполняется первым,
+ * излишек идёт в кристалл (решение Антона 07.11, резерв как в машинах IC2 плюс подзарядка от излишков).
+ * Рост берёт энергию только из пришедшего за тик (tickInput): её нижняя часть просит у сети первой, сверх места в запасе,
+ * и машина забирает её в следующем тике (TileReplicator.tickGrowth). Запас на рост не тратится (решение Антона 07.11).
  */
 public class ReplicatorSink extends BasicSink {
 
@@ -24,6 +28,8 @@ public class ReplicatorSink extends BasicSink {
 
     private final TileEntity owner;
     private final boolean upper;
+    /** Пришло из сети на рост с прошлого тика машины (только нижняя часть). */
+    private double tickInput;
 
     public ReplicatorSink(TileEntity owner, double capacity, boolean upper) {
         super(owner, capacity, TIER);
@@ -48,7 +54,12 @@ public class ReplicatorSink extends BasicSink {
     @Override
     public double getDemandedEnergy() {
         if (!upper) {
-            return super.getDemandedEnergy();
+            double room = Math.max(0, getCapacity() - getEnergyStored());
+            if (!(owner instanceof TileReplicator)) {
+                return room;
+            }
+            TileReplicator tile = (TileReplicator) owner;
+            return Math.max(0, tile.growDemand() - tickInput) + room + tile.reserveDemand();
         }
         ReplicatorSink main = lowerSink();
         return main != null ? main.getDemandedEnergy() : 0;
@@ -57,13 +68,30 @@ public class ReplicatorSink extends BasicSink {
     @Override
     public double injectEnergy(EnumFacing direction, double amount, double voltage) {
         if (!upper) {
-            // Берём ровно до полного запаса, остаток возвращаем сети (BasicSink IC2 принял бы пакет целиком и перелил бы запас)
+            // Сначала на рост этого тика, потом ровно до полного запаса, потом в кристалл; остаток возвращаем сети
+            // (BasicSink IC2 принял бы пакет целиком и перелил бы запас)
+            if (owner instanceof TileReplicator) {
+                double toGrow = Math.min(amount, Math.max(0, ((TileReplicator) owner).growDemand() - tickInput));
+                tickInput += toGrow;
+                amount -= toGrow;
+            }
             double accepted = Math.min(amount, Math.max(0, getCapacity() - getEnergyStored()));
             setEnergyStored(getEnergyStored() + accepted);
-            return amount - accepted;
+            double rest = amount - accepted;
+            if (rest > 0 && owner instanceof TileReplicator) {
+                rest -= ((TileReplicator) owner).chargeReserveFromNet(rest);
+            }
+            return rest;
         }
         ReplicatorSink main = lowerSink();
         return main != null ? main.injectEnergy(direction, amount, voltage) : amount;
+    }
+
+    /** Забрать пришедшее на рост (машина вызывает раз в тик). */
+    public double takeTickInput() {
+        double v = tickInput;
+        tickInput = 0;
+        return v;
     }
 
     @Nullable

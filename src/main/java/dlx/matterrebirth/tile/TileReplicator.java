@@ -3,12 +3,17 @@ package dlx.matterrebirth.tile;
 import dlx.matterrebirth.block.BlockReplicator;
 import dlx.matterrebirth.chunk.ReplicatorChunks;
 import dlx.matterrebirth.energy.ReplicatorSink;
+import dlx.matterrebirth.init.MRConfig;
 import dlx.matterrebirth.init.MRContent;
 import dlx.matterrebirth.inventory.ReplicatorAutomation;
 import dlx.matterrebirth.inventory.ReplicatorInventory;
+import dlx.matterrebirth.item.ItemBloodSample;
+import dlx.matterrebirth.uu.BloodPatterns;
 import ic2.api.item.ElectricItem;
+import ic2.api.recipe.IPatternStorage;
 import net.minecraft.block.state.IBlockState;
 import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.init.Items;
 import net.minecraft.inventory.InventoryHelper;
 import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NBTTagCompound;
@@ -20,7 +25,9 @@ import net.minecraft.util.ITickable;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.World;
 import net.minecraftforge.common.capabilities.Capability;
+import net.minecraftforge.fluids.Fluid;
 import net.minecraftforge.fluids.FluidActionResult;
+import net.minecraftforge.fluids.FluidRegistry;
 import net.minecraftforge.fluids.FluidStack;
 import net.minecraftforge.fluids.FluidTank;
 import net.minecraftforge.fluids.FluidUtil;
@@ -30,22 +37,32 @@ import net.minecraftforge.items.IItemHandler;
 import net.minecraftforge.items.ItemHandlerHelper;
 
 import javax.annotation.Nullable;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 /**
  * Главная (нижняя) часть репликатора клонов: владелец (игрок, который собрал машину), запас энергии и слоты.
  * Энергию принимают обе части через порты (ReplicatorSink), хранит её эта часть.
- * Улучшения IC2: накопитель (+10000 EU запаса за штуку), трансформатор (+1 уровень напряжения за штуку).
- * Резерв (накопитель 3-го уровня и выше) заряжается из запаса машины.
+ * Улучшения IC2: накопитель (+10000 EU запаса за штуку), трансформатор (+1 уровень напряжения за штуку),
+ * ускоритель (рост быстрее в 1/0,7 раза и дороже в 1,6 раза за штуку, как в машинах IC2).
+ * Резерв (накопитель 3-го уровня и выше) работает как в машинах IC2: неполный запас машины каждый тик доливается
+ * из кристалла; излишек сети сверх полного запаса идёт в кристалл (ReplicatorSink). Кристалл питает всё, включая рост.
  * Бак жидкой UU на 16 вёдер, как у репликатора IC2: наполняется из капсул в слоте и через порты трубами
  * (трубы могут и откачивать). Автоматика работает со слотами только через порты (ReplicatorAutomation).
  * С выталкивателем IC2 машина сама выталкивает пустые капсулы и плоть в соседние хранилища через порты.
- * Клон и его рост добавятся на этапе 4.
+ * Рост клона (этап 4б, решения Антона 07.11): пять стадий снизу вверх; стадия стартует, только когда в баке есть
+ * вся её UU, и забирает её сразу; без энергии выращенное откатывается (подробности у tickGrowth).
+ * Поддержание готового клона — этап 4в.
  */
 public class TileReplicator extends TileEntity implements ITickable {
 
-    /** Внутренний запас без улучшений, EU. */
-    public static final double BASE_CAPACITY = 10000;
+    /**
+     * Внутренний запас без улучшений, EU: как энергетический кристалл IC2. Расчёт Антона 07.11: в каждом конструкционном
+     * блоке резонирующий кристалл из 4 энергетических пылей (~444 тыс. EU, как 4/9 энергокристалла), блоков два — около
+     * миллиона. Запас на рост не тратится, только держит слои: 1 000 000 / 16 EU/t — около 52 минут без питания.
+     */
+    public static final double BASE_CAPACITY = 1000000;
     /** Прибавка запаса от одного улучшения-накопителя IC2, EU. */
     public static final double STORAGE_PER_UPGRADE = 10000;
 
@@ -67,6 +84,56 @@ public class TileReplicator extends TileEntity implements ITickable {
             markDirty();
         }
     };
+
+    /*
+     * Кнопки внизу экрана (решения Антона 06.11): «Стоп» нет — без шаблона машина не растит, а шаблон и выращенное сбрасывает
+     * корзина, как результат в сканере IC2; пауза и продолжение — одна кнопка; «растить заново» — отдельный переключатель.
+     */
+
+    /** Номера кнопок окна (Container.enchantItem). */
+    public static final int BUTTON_PREV = 0, BUTTON_NEXT = 1, BUTTON_TRASH = 2, BUTTON_PAUSE = 3, BUTTON_REPEAT = 4;
+
+    // --- рост: стадии снизу вверх — скелет, нервы, сосуды, мышцы, кожа (числа стартовые, решения Антона 07.11) ---
+
+    public static final int STAGES = 5;
+    /** UU на стадию, mB. */
+    public static final int[] STAGE_UU = {200, 250, 150, 300, 100};
+    /** Время стадии без ускорителей, тики (4, 5, 3, 6 и 2 минуты). */
+    public static final int[] STAGE_TICKS = {4800, 6000, 3600, 7200, 2400};
+    /** Рост, EU/t без ускорителей. */
+    public static final double GROW_EU = 512;
+    /** Удержание недоделанных слоёв (пауза, нет UU, мало энергии), EU/t. */
+    public static final double HOLD_EU = 16;
+    /** Откат без энергии: тиков прогресса за тик (вдвое медленнее роста). */
+    public static final double ROLLBACK_SPEED = 0.5;
+    private static final double EPS = 1e-6;
+
+    /** Что машина делает сейчас; строка состояния окна. Порядок значений передаётся в окно числом: не менять. */
+    // порядок важен: окно получает номер (ordinal); новые значения только в конец
+    public enum Status { IDLE, GROWING, NEED_UU, PAUSED, LOW_POWER, ROLLBACK, READY, NO_POWER, CHARGING, OVERLOAD }
+
+    /** Текущая стадия 0..4; STAGES — клон готов. Стадии ниже текущей выращены целиком. */
+    private int stage;
+    /** Прогресс текущей стадии, тики без ускорителей (0..STAGE_TICKS[stage]). */
+    private double progress;
+    /**
+     * Сколько UU текущей стадии внутри, доля 0..1. Стадия забирает всю UU на старте (1); откат снимает прогресс
+     * и столько же «оплаты». Пока доля меньше 1, это долг: перед ростом машина добирает его из бака.
+     */
+    private double paid;
+    /** Текущая стадия была выращена целиком и сейчас откатывается: снятая целиком, она даст плоть. */
+    private boolean rollingFull;
+    // считаются каждый тик, не сохраняются
+    private Status status = Status.IDLE;
+    private int uuShort;
+    private int secondsLeft;
+
+    /** Растить заново после каждого воскрешения (иначе один раз). */
+    private boolean repeat;
+    /** Ручная пауза: рост стоит, выращенное держится на HOLD_EU. */
+    private boolean paused;
+    /** Выбранный шаблон: копия образца крови из хранилища шаблонов; машина хранит её у себя, как репликатор IC2. */
+    private ItemStack pattern = ItemStack.EMPTY;
 
     /** Билет загрузки чанка проверяется на первом тике машины на сервере. */
     private boolean chunkTicketChecked;
@@ -107,9 +174,322 @@ public class TileReplicator extends TileEntity implements ITickable {
             // после перезахода билет уже восстановлен Forge (ReplicatorChunks.ticketsLoaded), тогда ничего не делается
             ReplicatorChunks.ensure(world, pos, ownerId);
         }
-        chargeReserve();
-        fillFromContainer();
+        // TODO(релиз): ОТЛАДКА — убрать цикл перед выпуском (Антон 07.11). Сеть даёт вход раз в тик, поэтому в ускоренных
+        // повторах рост и удержание идут из запаса и кристалла: запас тает в N раз быстрее
+        int speed = Math.max(1, MRConfig.GENERAL.debugReplicatorSpeed);
+        for (int i = 0; i < speed; i++) {
+            topUpFromReserve();
+            fillFromContainer(); // до роста: только что залитая капсула оплачивает стадию в этом же тике
+            tickGrowth();
+            // ещё раз после работы: потраченное за тик кристалл возвращает в запас сразу, и окно видит полный запас,
+            // пока кристалл не сел (проверка Антона 07.11: заряд не держался полным)
+            topUpFromReserve();
+        }
         eject();
+    }
+
+    // --- рост ---
+
+    /**
+     * Один тик роста. По порядку:
+     * без шаблона машина ждёт; готовый клон держится (поддержание — 4в);
+     * меньше HOLD_EU в запасе (и кристалл пуст: он уже долит) — выращенное откатывается;
+     * пауза — держит; долг стадии добирается из бака, нет UU — держит; хватает энергии на рост — растёт, иначе держит.
+     * Пока в камере пусто, удержание ничего не стоит.
+     */
+    private void tickGrowth() {
+        uuShort = 0;
+        secondsLeft = 0;
+        // Энергия на шаг роста: пришедшее за тик из сети, затем верхняя половина запаса, затем кристалл резерва.
+        // Запас ниже половины на рост не тратится — он держит слои при перебоях. Дошли до половины — «Диапауза», запас
+        // копится до полного (charging), потом рост из запаса снова разрешён; пришедшего из сети хватает — растёт и так.
+        // Решение Антона 07.11: полная молния значит «растёт», надпись не мигает. Остаток пришедшего — в запас.
+        double in = sink.takeTickInput();
+        if (pattern.isEmpty()) {
+            storeInput(in);
+            charging = false; // растить нечего: следующий рост начнётся с обычного правила половины
+            status = Status.IDLE; // корзина сбрасывает шаблон вместе с выращенным: без шаблона камера пуста
+            return;
+        }
+        if (stage >= STAGES) {
+            charging = false; // клон готов: «растить заново» начнёт с обычного правила половины
+            status = Status.READY;
+            holdFrom(in, true); // в 4б готовый клон просто держится; поддержание и его цена — 4в
+            return;
+        }
+        int oc = overclockers();
+        double eu = growEu(oc);
+        double half = sink.getCapacity() / 2;
+        // Полнота считается вместе с пришедшим за этот тик: удержание слоёв (16 EU/t) снимается каждый тик после зарядки,
+        // и без учёта входа запас в момент проверки всегда на 16 EU ниже полного (проверка Антона 07.11: 999984 / 1000000)
+        if (charging && sink.getEnergyStored() + in >= sink.getCapacity() - EPS) {
+            charging = false; // запас снова полон
+        }
+        boolean neverFromStore = false; // рост дороже, чем может дать даже полный запас (много ускорителей)
+        if (canGrowNow()) {
+            double fromStore = charging ? 0 : Math.max(0, sink.getEnergyStored() - half);
+            double need = Math.max(0, eu - in);
+            double store = Math.min(need, fromStore);
+            if (in + store + reserveCanGive(need - store) >= eu - EPS) {
+                payDebt();
+                if (in >= eu) {
+                    storeInput(in - eu);
+                } else {
+                    use(store);
+                    dischargeReserve(need - store);
+                }
+                if (sink.getEnergyStored() <= half + EPS && in < eu) {
+                    charging = true; // верхняя половина израсходована: дальше копим до полного
+                }
+                grow(oc);
+                return;
+            }
+            if (!charging) {
+                charging = true; // запас у половины, а сети и кристалла мало
+            }
+            // верхняя половина полного запаса вместе с кристаллом не покроет шаг (с базой 1 000 000 это от 15 ускорителей):
+            // зарядка до полного не поможет: «Перегрузка» (Антон 07.11) — убрать ускорители, добавить хранение или поднять вход
+            neverFromStore = in + (sink.getCapacity() - half) + reserveCanGive(need) < eu - EPS;
+        }
+        // запас вместе с пришедшим за тик: удержание берётся сначала из входа (holdFrom), запас трогается только при нехватке
+        double stored = Math.min(sink.getCapacity(), sink.getEnergyStored() + in);
+        boolean growth = hasGrowth();
+        if (stored < HOLD_EU) {
+            storeInput(in);
+            stored = sink.getEnergyStored();
+            if (growth) {
+                status = Status.ROLLBACK;
+                // остатка меньше удержания не хватает ни на что: он уходит на попытку удержать слои, экран гаснет
+                // (иначе несколько EU висели бы в запасе вечно и экран не выключался, проверка Антона 07.11)
+                use(stored);
+                rollback();
+            } else {
+                status = stored < 1 ? Status.NO_POWER : paused ? Status.PAUSED : Status.LOW_POWER;
+            }
+            return;
+        }
+        if (paused) {
+            // на паузе запас тоже может уйти до половины (сеть слабее 16 EU/t удержания): машина сама переходит
+            // в «Диапаузу» и копит до полного, потом снова «Пауза» (Антон 07.11). Без выращенного удерживать нечего —
+            // шаблон ждёт «Начать рост» как обычно
+            if (growth && stored <= half + EPS) {
+                charging = true;
+            }
+            status = growth && charging ? Status.CHARGING : Status.PAUSED;
+            holdFrom(in, growth);
+            return;
+        }
+        if (debt() > tank.getFluidAmount()) {
+            status = Status.NEED_UU;
+            uuShort = debt() - tank.getFluidAmount();
+            holdFrom(in, growth);
+            return;
+        }
+        // UU есть, но питания мало и запас у половины: рост остановлен, запас копится до полного, слои держатся из него
+        // (отдельное состояние с пояснением — просьба Антона 07.11)
+        // камера пуста (стадия ещё не начата): удерживать нечего, «Диапауза» не к месту — «Мало EU», рост начнётся
+        // после полной зарядки или от нужного входа (Антон 07.11)
+        status = neverFromStore ? Status.OVERLOAD : charging && growth ? Status.CHARGING : Status.LOW_POWER;
+        holdFrom(in, growth);
+    }
+
+    /** Запас дошёл до половины при нехватке питания: рост из запаса запрещён, пока запас не станет полным. */
+    private boolean charging;
+
+    /** Сколько UU не хватает до оплаты текущей стадии (долг после отката или вся цена новой стадии), mB. */
+    private int debt() {
+        return paid < 1 - EPS ? Math.max(0, (int) Math.ceil((1 - paid) * STAGE_UU[stage] - EPS)) : 0;
+    }
+
+    /** Можно расти, если хватит энергии: есть шаблон, стадия не последняя, не пауза, UU на долг есть. */
+    private boolean canGrowNow() {
+        return !pattern.isEmpty() && stage < STAGES && !paused && debt() <= tank.getFluidAmount();
+    }
+
+    /** Сколько EU на рост машина просит у сети сверх места в запасе (ReplicatorSink). 0 — расти сейчас нельзя. */
+    public double growDemand() {
+        if (canGrowNow()) {
+            return growEu(overclockers());
+        }
+        // расти нельзя, но есть что держать: сеть отдаёт 16 EU/t удержания прямо во вход, запас остаётся полным
+        // (иначе запас каждый тик на 16 EU ниже полного, а кристалл тратится на удержание — проверка Антона 07.11)
+        return !pattern.isEmpty() && (stage >= STAGES || hasGrowth()) ? HOLD_EU : 0;
+    }
+
+    private void payDebt() {
+        int debt = debt();
+        if (debt > 0) {
+            tank.drain(debt, true);
+        }
+        if (paid < 1) {
+            paid = 1;
+            markDirty();
+        }
+    }
+
+    /** Один шаг роста (энергия уже списана). */
+    private void grow(int oc) {
+        double speed = Math.pow(0.7, -oc);
+        double total = STAGE_TICKS[stage];
+        progress = Math.min(total, progress + speed);
+        status = Status.GROWING;
+        secondsLeft = (int) Math.ceil((total - progress) / speed / 20 - EPS);
+        if (progress >= total - EPS) {
+            stage++;
+            progress = 0;
+            paid = 0;
+            rollingFull = false;
+            if (stage >= STAGES) {
+                status = Status.READY;
+            }
+            sync(); // новая стадия на клиент (окно, позже модель)
+        } else {
+            markDirty();
+        }
+    }
+
+    /** Пришедшее из сети — в запас; что не влезло — в кристалл резерва (остальное возвращать уже некуда). */
+    private void storeInput(double amount) {
+        if (amount <= 0) {
+            return;
+        }
+        double room = Math.max(0, sink.getCapacity() - sink.getEnergyStored());
+        double put = Math.min(room, amount);
+        sink.setEnergyStored(sink.getEnergyStored() + put);
+        if (amount > put) {
+            chargeReserveFromNet(amount - put);
+        }
+    }
+
+    /** Сколько кристалл резерва может отдать прямо сейчас (проверка без списания). */
+    private double reserveCanGive(double amount) {
+        ItemStack reserve = inventory.getStackInSlot(ReplicatorInventory.RESERVE);
+        if (amount <= 0 || reserve.isEmpty()) {
+            return 0;
+        }
+        return ElectricItem.manager.discharge(reserve, amount, sink.getSinkTier(), true, false, true);
+    }
+
+    private void dischargeReserve(double amount) {
+        ItemStack reserve = inventory.getStackInSlot(ReplicatorInventory.RESERVE);
+        if (amount > 0 && !reserve.isEmpty()) {
+            ElectricItem.manager.discharge(reserve, amount, sink.getSinkTier(), true, false, false);
+            markDirty();
+        }
+    }
+
+    /**
+     * Откат без энергии, вдвое медленнее роста: снимается прогресс и столько же «оплаты» (потом это долг).
+     * Текущая стадия дошла до нуля — неизрасходованная UU, взятая ею под ещё не выращенную часть, возвращается в бак,
+     * и откат идёт в предыдущую, выращенную целиком стадию. Стадия, выращенная целиком и снятая до нуля, даёт 1 гнилую плоть;
+     * частично выращенная — ничего.
+     */
+    private void rollback() {
+        int cost = STAGE_UU[stage];
+        if (progress > EPS) {
+            double lost = Math.min(ROLLBACK_SPEED, progress);
+            progress -= lost;
+            paid = Math.max(0, paid - lost / STAGE_TICKS[stage]);
+            if (progress > EPS) {
+                markDirty();
+                return;
+            }
+            progress = 0;
+            if (rollingFull) {
+                rollingFull = false;
+                giveFlesh(1);
+            }
+        }
+        refund((int) Math.floor(paid * cost + EPS));
+        paid = 0;
+        if (stage > 0) {
+            stage--;
+            progress = STAGE_TICKS[stage];
+            paid = 1;
+            rollingFull = true;
+        }
+        sync();
+    }
+
+    /** В камере что-то есть: выращенные слои, прогресс или уже оплаченная стадия. */
+    public boolean hasGrowth() {
+        return stage > 0 || progress > EPS || paid > EPS;
+    }
+
+    /**
+     * Удержание за тик: сначала из пришедшего из сети, недостающее — из запаса; остаток входа — в запас.
+     * Пустая камера ничего не тратит.
+     */
+    private void holdFrom(double in, boolean growth) {
+        double take = growth ? Math.min(in, HOLD_EU) : 0;
+        storeInput(in - take);
+        if (growth && take < HOLD_EU) {
+            use(Math.min(HOLD_EU - take, sink.getEnergyStored()));
+        }
+    }
+
+    private void use(double eu) {
+        if (eu > 0) {
+            sink.setEnergyStored(Math.max(0, sink.getEnergyStored() - eu));
+        }
+    }
+
+    public int overclockers() {
+        int n = 0;
+        for (int i = 0; i < ReplicatorInventory.UPGRADE_COUNT; i++) {
+            ItemStack stack = inventory.getStackInSlot(ReplicatorInventory.UPGRADE_FIRST + i);
+            if (ReplicatorInventory.upgradeKind(stack) == ReplicatorInventory.Upgrade.OVERCLOCKER) {
+                n += stack.getCount();
+            }
+        }
+        return n;
+    }
+
+    /** Гнилая плоть в свой слот; не влезла — падает рядом, не пропадает. */
+    private void giveFlesh(int count) {
+        if (count <= 0) {
+            return;
+        }
+        ItemStack rest = inventory.insertInternal(ReplicatorInventory.FLESH, new ItemStack(Items.ROTTEN_FLESH, count), false);
+        if (!rest.isEmpty()) {
+            InventoryHelper.spawnItemStack(world, pos.getX() + 0.5, pos.getY() + 1.0, pos.getZ() + 0.5, rest);
+        }
+    }
+
+    /** Вернуть UU в бак (что не влезло в полный бак, пропадает). */
+    private void refund(int mb) {
+        Fluid uu = FluidRegistry.getFluid(ReplicatorInventory.UU_FLUID);
+        if (mb > 0 && uu != null) {
+            tank.fill(new FluidStack(uu, mb), true);
+        }
+    }
+
+    public int getStage() {
+        return stage;
+    }
+
+    /** Прогресс текущей стадии, 0..1. */
+    public double getStageProgress() {
+        return stage >= STAGES ? 1 : progress / STAGE_TICKS[stage];
+    }
+
+    public Status getStatus() {
+        return status;
+    }
+
+    /** Сколько UU не хватает на стадию (или на долг), mB; при состоянии NEED_UU. */
+    public int getUuShort() {
+        return uuShort;
+    }
+
+    /** Секунд до конца текущей стадии при нынешних ускорителях; при состоянии GROWING. */
+    public int getSecondsLeft() {
+        return secondsLeft;
+    }
+
+    /** Рост, EU/t, с ускорителями n штук (окно показывает в подсказке «мало энергии»). */
+    public static double growEu(int overclockers) {
+        return GROW_EU * Math.pow(1.6, overclockers);
     }
 
     /**
@@ -247,6 +627,187 @@ public class TileReplicator extends TileEntity implements ITickable {
         return dir >= 1 && dir <= 6 ? EnumFacing.VALUES[dir - 1] : null;
     }
 
+    // --- шаблон, пауза и повтор (кнопки окна) ---
+
+    public boolean isRepeat() {
+        return repeat;
+    }
+
+    public boolean isPaused() {
+        return paused;
+    }
+
+    public ItemStack getPattern() {
+        return pattern;
+    }
+
+    /** Ник из выбранного шаблона или null, если шаблон не выбран. */
+    @Nullable
+    public String getPatternName() {
+        return pattern.isEmpty() ? null : ItemBloodSample.getOwnerName(pattern);
+    }
+
+    /**
+     * Активна ли машина: есть заряд в её запасе или в кристалле резерва, который её поддерживает (решение Антона 06.11).
+     * Иначе экран окна выключен и кнопки не работают.
+     */
+    public boolean isPowered() {
+        if (sink.getEnergyStored() >= 1) {
+            return true;
+        }
+        ItemStack reserve = inventory.getStackInSlot(ReplicatorInventory.RESERVE);
+        return !reserve.isEmpty() && ElectricItem.manager.getCharge(reserve) >= 1;
+    }
+
+    /** Нажатие кнопки в окне (на сервере). Неизвестные номера и нажатия без заряда ничего не делают. */
+    public void onButton(int id) {
+        if (!isPowered()) {
+            return;
+        }
+        if (id == BUTTON_PREV || id == BUTTON_NEXT) {
+            cyclePattern(id == BUTTON_NEXT ? 1 : -1);
+        } else if (id == BUTTON_TRASH) {
+            reset();
+        } else if (id == BUTTON_PAUSE) {
+            if (canPause()) {
+                paused = !paused;
+                sync();
+            }
+        } else if (id == BUTTON_REPEAT) {
+            if (!pattern.isEmpty()) {
+                repeat = !repeat;
+                sync();
+            }
+        }
+    }
+
+    /*
+     * Без шаблона пауза, «растить заново» и корзина не работают, живы только стрелки (решение Антона 07.11).
+     * Окно проверяет то же самое по своим данным и рисует такие кнопки тёмными.
+     */
+
+    /** Пауза: есть шаблон и клон ещё растёт (у готового клона пауза тёмная). */
+    public boolean canPause() {
+        // в «Диапаузе» и «Перегрузке» рост и так стоит: пауза неактивна (Антон 07.11); со стоящей паузой статус PAUSED, снять её можно
+        return !pattern.isEmpty() && stage < STAGES && status != Status.CHARGING && status != Status.OVERLOAD;
+    }
+
+    /** Корзина: есть шаблон. Если в камере что-то есть, окно сначала спрашивает подтверждение (решение Антона 07.11). */
+    public boolean canReset() {
+        return !pattern.isEmpty();
+    }
+
+    /** Сколько гнилой плоти даст корзина сейчас: по 1 за стадию, выращенную целиком (у готового клона — все 5). */
+    public int resetFlesh() {
+        // стадия, в которую откат перешёл, считается целой, только пока откат её ещё не тронул; частично снятая плоти
+        // не даёт, как и при откате (Антон 07.11: иначе стадия «состояла бы из 2 плотей»)
+        boolean wholeRolling = rollingFull && stage < STAGES && progress >= STAGE_TICKS[stage] - EPS;
+        return Math.min(STAGES, stage + (wholeRolling ? 1 : 0));
+    }
+
+    /**
+     * Корзина: убрать шаблон и выращенное. Стадии, выращенные целиком, уходят в гнилую плоть (по 1 за стадию,
+     * как при откате); неизрасходованная UU текущей стадии (взятая под ещё не выращенную часть) возвращается в бак.
+     * Пауза снимается вместе с ростом, «растить заново» — настройка, остаётся.
+     */
+    private void reset() {
+        if (!canReset()) {
+            return;
+        }
+        if (hasGrowth()) {
+            if (stage < STAGES) {
+                double unbuilt = paid - progress / STAGE_TICKS[stage];
+                // вверх: за первые доли секунды роста стадия не теряет 1 mB (проверка Антона 07.11: 999 из 1000);
+                // больше заплаченного вернуть нельзя — unbuilt ≤ paid ≤ 1, корзина разовая
+                refund((int) Math.ceil(Math.max(0, unbuilt) * STAGE_UU[stage] - EPS));
+            }
+            giveFlesh(resetFlesh());
+        }
+        stage = 0;
+        progress = 0;
+        paid = 0;
+        rollingFull = false;
+        paused = false;
+        charging = false;
+        pattern = ItemStack.EMPTY;
+        sync();
+    }
+
+    /** Сменить шаблон стрелками можно, только пока камера пуста; иначе сначала корзина. */
+    public boolean canChangePattern() {
+        return !hasGrowth();
+    }
+
+    private void cyclePattern(int dir) {
+        if (!canChangePattern()) {
+            return;
+        }
+        List<ItemStack> list = findPatterns();
+        if (list.isEmpty()) {
+            return;
+        }
+        UUID current = pattern.isEmpty() ? null : ItemBloodSample.getOwnerId(pattern);
+        int idx = -1;
+        for (int i = 0; i < list.size(); i++) {
+            if (ItemBloodSample.getOwnerId(list.get(i)).equals(current)) {
+                idx = i;
+                break;
+            }
+        }
+        int next = idx < 0 ? (dir > 0 ? 0 : list.size() - 1) : Math.floorMod(idx + dir, list.size());
+        ItemStack chosen = ItemBloodSample.cleanCopy(list.get(next));
+        if (!ItemStack.areItemStacksEqual(chosen, pattern)) {
+            pattern = chosen;
+            // выбранный шаблон ждёт на паузе: стрелками можно спокойно долистать до нужного, рост (и списание UU)
+            // начинается кнопкой «начать рост» (замечание Антона 07.11: иначе стадия стартовала сразу и стрелки блокировались)
+            paused = true;
+            sync();
+        }
+    }
+
+    /**
+     * Образцы крови из хранилищ шаблонов IC2, подключённых к портам (как штатный репликатор берёт шаблоны у соседнего хранилища).
+     * Один шаблон на владельца: одинаковые образцы из разных хранилищ не повторяются.
+     */
+    public List<ItemStack> findPatterns() {
+        List<ItemStack> result = new ArrayList<>();
+        IBlockState state = world.getBlockState(pos);
+        if (state.getBlock() != MRContent.replicator) {
+            return result;
+        }
+        EnumFacing back = state.getValue(BlockReplicator.FACING).getOpposite();
+        BlockPos upper = pos.up();
+        BlockPos[] neighbours = {pos.offset(back), pos.down(), upper.offset(back), upper.up()};
+        List<UUID> seen = new ArrayList<>();
+        for (BlockPos n : neighbours) {
+            if (!world.isBlockLoaded(n)) {
+                continue;
+            }
+            TileEntity te = world.getTileEntity(n);
+            if (!(te instanceof IPatternStorage)) {
+                continue;
+            }
+            List<ItemStack> stored = ((IPatternStorage) te).getPatterns();
+            if (stored == null) {
+                continue;
+            }
+            for (ItemStack p : stored) {
+                if (BloodPatterns.isBloodPattern(p) && !seen.contains(ItemBloodSample.getOwnerId(p))) {
+                    seen.add(ItemBloodSample.getOwnerId(p));
+                    result.add(p);
+                }
+            }
+        }
+        return result;
+    }
+
+    /** Сохранить и разослать клиентам (шапка и кнопки окна берут данные с клиентской копии машины). */
+    private void sync() {
+        markDirty();
+        IBlockState state = world.getBlockState(pos);
+        world.notifyBlockUpdate(pos, state, state, 3);
+    }
+
     // --- трубы и автоматика: только через порты (сторона null — внутренний доступ, например подсказки модов) ---
 
     /** Порт ли эта грань нижней части. */
@@ -282,23 +843,50 @@ public class TileReplicator extends TileEntity implements ITickable {
         return super.getCapability(capability, facing);
     }
 
-    /** Остаток энергии из запаса уходит в резерв. Уровень зарядки равен уровню машины: лазуротрон (4) только с трансформатором. */
-    private void chargeReserve() {
+    /**
+     * Как слот разрядки в машинах IC2 (проверено по IC2: Energy.onWorldTick → InvSlotDischarge): каждый тик до работы машины
+     * неполный запас доливается из кристалла резерва. Сеть восполняет запас в конце тика, поэтому при достаточном питании
+     * кристалл не тратится, а при нехватке питает всё, включая рост. Уровень разрядки — уровень машины.
+     */
+    private void topUpFromReserve() {
         ItemStack reserve = inventory.getStackInSlot(ReplicatorInventory.RESERVE);
         double stored = sink.getEnergyStored();
-        // в резерв уходят только излишки: пока запас машины не полон, кристалл не заряжается,
-        // а за тик отдаём не больше одного пакета своего уровня, который сеть тут же восполнит
-        if (reserve.isEmpty() || stored < sink.getCapacity() - 0.5) {
+        double room = sink.getCapacity() - stored;
+        if (reserve.isEmpty() || room <= 0) {
             return;
         }
-        // пакет считаем по уровню самого накопителя, а не машины: с трансформаторами уровень машины растёт до 14,
-        // и пакет такого уровня за один тик выкачивал бы в кристалл весь запас машины
-        double packet = ic2.api.energy.EnergyNet.instance.getPowerFromTier(ReplicatorInventory.electricTier(reserve));
-        double moved = ElectricItem.manager.charge(reserve, Math.min(stored, packet), sink.getSinkTier(), false, false);
-        if (moved > 0) {
-            sink.setEnergyStored(stored - moved);
+        double got = ElectricItem.manager.discharge(reserve, room, sink.getSinkTier(), true, false, false);
+        if (got > 0) {
+            sink.setEnergyStored(stored + got);
             markDirty();
         }
+    }
+
+    /**
+     * Сколько ещё энергии сети может взять кристалл резерва за тик: не больше пакета его уровня
+     * (по уровню самого накопителя, а не машины: с трансформаторами уровень машины растёт до 14).
+     * ReplicatorSink просит у сети это сверх места в запасе; запас наполняется первым.
+     */
+    public double reserveDemand() {
+        ItemStack reserve = inventory.getStackInSlot(ReplicatorInventory.RESERVE);
+        if (reserve.isEmpty()) {
+            return 0;
+        }
+        double packet = ic2.api.energy.EnergyNet.instance.getPowerFromTier(ReplicatorInventory.electricTier(reserve));
+        return ElectricItem.manager.charge(reserve, packet, sink.getSinkTier(), false, true);
+    }
+
+    /** Излишек сети, не влезший в полный запас, заряжает кристалл резерва. Возвращает, сколько взято. */
+    public double chargeReserveFromNet(double amount) {
+        ItemStack reserve = inventory.getStackInSlot(ReplicatorInventory.RESERVE);
+        if (reserve.isEmpty() || amount <= 0) {
+            return 0;
+        }
+        double moved = ElectricItem.manager.charge(reserve, Math.min(amount, reserveDemand()), sink.getSinkTier(), false, false);
+        if (moved > 0) {
+            markDirty();
+        }
+        return moved;
     }
 
     /** Окно может изменить стопку улучшений напрямую (докладывание мышью), без уведомления инвентаря. */
@@ -390,6 +978,14 @@ public class TileReplicator extends TileEntity implements ITickable {
         applyUpgrades(); // сначала ёмкость, потом заряд, иначе заряд обрежется до базовой ёмкости
         sink.readFromNBT(tag);
         tank.readFromNBT(tag.getCompoundTag("Tank")); // в старых мирах тега нет: бак пустой
+        stage = Math.max(0, Math.min(STAGES, tag.getInteger("Stage")));
+        progress = stage < STAGES ? Math.max(0, Math.min(STAGE_TICKS[stage], tag.getDouble("Progress"))) : 0;
+        paid = stage < STAGES ? Math.max(0, Math.min(1, tag.getDouble("Paid"))) : 0;
+        rollingFull = tag.getBoolean("RollingFull");
+        charging = tag.getBoolean("Charging");
+        repeat = tag.getBoolean("Repeat");
+        paused = tag.getBoolean("Paused");
+        pattern = tag.hasKey("Pattern") ? new ItemStack(tag.getCompoundTag("Pattern")) : ItemStack.EMPTY;
         if (tag.hasUniqueId("OwnerId")) {
             ownerId = tag.getUniqueId("OwnerId");
             ownerName = tag.getString("OwnerName");
@@ -419,6 +1015,16 @@ public class TileReplicator extends TileEntity implements ITickable {
         sink.writeToNBT(tag);
         tag.setTag("Inv", inventory.serializeNBT());
         tag.setTag("Tank", tank.writeToNBT(new NBTTagCompound()));
+        tag.setInteger("Stage", stage);
+        tag.setDouble("Progress", progress);
+        tag.setDouble("Paid", paid);
+        tag.setBoolean("RollingFull", rollingFull);
+        tag.setBoolean("Charging", charging);
+        tag.setBoolean("Repeat", repeat);
+        tag.setBoolean("Paused", paused);
+        if (!pattern.isEmpty()) {
+            tag.setTag("Pattern", pattern.writeToNBT(new NBTTagCompound()));
+        }
         if (ownerId != null) {
             tag.setUniqueId("OwnerId", ownerId);
             tag.setString("OwnerName", ownerName != null ? ownerName : "");
