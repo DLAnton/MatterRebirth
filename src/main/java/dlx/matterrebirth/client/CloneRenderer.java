@@ -1,8 +1,10 @@
 package dlx.matterrebirth.client;
 
 import dlx.matterrebirth.MatterRebirth;
+import dlx.matterrebirth.block.BlockReplicator;
 import dlx.matterrebirth.item.ItemBloodSample;
 import dlx.matterrebirth.tile.TileReplicator;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.BufferBuilder;
 import net.minecraft.client.renderer.GlStateManager;
 import net.minecraft.client.renderer.OpenGlHelper;
@@ -20,15 +22,24 @@ import java.util.UUID;
  * FreshSkeletonTexture), 2 нервы и 3 сосуды (тонкие оболочки чуть больше костей, на сосудах нарисованы и нервы),
  * 4 мышцы, 5 кожа — скин того, чья кровь в шаблоне (CloneSkins). Растущий слой виден от ступней до доли роста стадии,
  * при откате тает сверху. Клон ~1,4 блока, лицом к стеклу, едва заметно покачивается («парит» в UU).
- * Погибший клон (пока гнилую плоть не забрали) — кожа в серо-зелёном оттенке, обмякшая поза.
+ * Погибший клон (пока гнилую плоть не забрали) — мертвецки бледный (PaleSkins), обмякшая поза.
  * Координаты клона — пиксели модели игрока: y от ступней вверх (0..32), перед — +z, x вправо от клона — к −x.
  * Обрезка роста — в самих коробках (не плоскостью отсечения: с шейдерами она ненадёжна).
+ * На линии роста у срезанных коробок — светящаяся крышка (5б+, лист clone_cut_v1, вариант А утверждён Антоном 08.11):
+ * поле с текстурой «сетка печати» и яркая кромка, цвет как у линии печати в окне, на полной яркости.
  */
 final class CloneRenderer {
 
     private static final ResourceLocation NERVES = tex("clone_nerves");
     private static final ResourceLocation VESSELS = tex("clone_vessels");
     private static final ResourceLocation MUSCLE = tex("clone_muscle");
+    /** Срез: плитка 16x16 в оттенках серого на 4x4 пикселя клона, кладётся по координатам клона (узор не тянется). */
+    private static final ResourceLocation CUT = tex("clone_cut");
+    private static final float CUT_TILE = 4;
+    /** Кромка среза, пиксели клона. */
+    private static final float RIM = 0.25F;
+    /** Режимы коробок: обычные грани, поле среза, кромка среза. */
+    private static final int FACES = 0, CAP = 1, CAP_RIM = 2;
 
     /**
      * Высота клона, блоки; модель — 32 пикселя. 1,375 (Антон 08.11: «сделать больше») — почти вся высота камеры:
@@ -41,8 +52,6 @@ final class CloneRenderer {
     private static final float CENTER_X = 8, CENTER_Z = 8;
     /** Погибший клон сдвинут назад на столько пикселей клона: середина его наклонённой фигуры — над центром площадки. */
     private static final float DEAD_SHIFT = 3;
-    /** Серо-зелёный оттенок погибшего: умножает цвета скина (за фиолетовой UU слабый оттенок не виден — Антон 08.11, усилен). */
-    private static final float[] DEAD_TINT = {0.48F, 0.70F, 0.40F};
     private static final float[] NO_TINT = {1, 1, 1};
     private static final float ALL = 1000;
 
@@ -63,21 +72,11 @@ final class CloneRenderer {
         boolean dead = te.isDead();
         int st = te.getStage();
         float f = te.getShownGrowth(partialTicks);
-        int g = st + 1;
         // меньше 1/20 пикселя клона не рисуется: иначе на площадке видны донца коробок ступней
-        boolean growing = !dead && g <= TileReplicator.STAGES && f * 32 >= 0.05F;
+        boolean growing = growing(te, f);
         if (!dead && st == 0 && !growing) {
             return;
         }
-        CloneSkins.Skin skin = null;
-        if (dead || st + (growing ? 1 : 0) >= 4) { // скин нужен и мышцам: при тонком скине руки тонкие
-            ItemStack pattern = te.getPattern();
-            UUID id = pattern.isEmpty() ? null : ItemBloodSample.getOwnerId(pattern);
-            skin = id != null ? CloneSkins.get(id, ItemBloodSample.getOwnerName(pattern), ItemBloodSample.getSkin(pattern))
-                    : CloneSkins.get(te.getOwnerId(), te.getOwnerName(), null);
-        }
-        boolean slim = skin != null && skin.slim;
-
         GlStateManager.pushMatrix();
         float time = te.getWorld().getTotalWorldTime() % 24000 + partialTicks + (te.getPos().hashCode() & 63);
         float feet = FEET + BOB * (float) Math.sin(Math.PI * 2 * time / BOB_TICKS);
@@ -89,6 +88,80 @@ final class CloneRenderer {
         float lastX = OpenGlHelper.lastBrightnessX, lastY = OpenGlHelper.lastBrightnessY;
         int light = light(te);
         OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, light & 0xFFFF, light >>> 16);
+        if (dead) {
+            // обмякший клон наклонён вперёд (голова выходит пикселей на 9 перед ступнями, затылок — на 3 назад):
+            // сдвинуть назад, чтобы он был посередине камеры (Антон 08.11)
+            GlStateManager.translate(0, 0, -DEAD_SHIFT);
+        }
+        body(te, f, growing);
+        OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, lastX, lastY);
+        GlStateManager.popMatrix();
+    }
+
+    /**
+     * Клон в окне машины на месте пунктирного каркаса (5б+, Антон 08.11): те же слои и срез, что в камере, в проекции
+     * макетов окна (поворот 30°, наклон 25°), без покачивания. x, y — экранная точка начала координат каркаса
+     * (ступни, левый передний угол фигуры в его системе), unit — пикселей окна на пиксель клона, z — над фоном окна.
+     * f — доля роста текущей стадии (окно сглаживает её так же, как линию печати, чтобы срез и линия шли вместе).
+     * Погибший клон — как в камере: бледный и обмякший (Антон 08.11, вместо красного каркаса). Возвращает true,
+     * если что-то нарисовано.
+     */
+    static boolean renderGui(TileReplicator te, float f, float x, float y, float z, float unit) {
+        int st = te.getStage();
+        boolean growing = growing(te, f);
+        boolean dead = te.isDead();
+        if (!dead && st == 0 && !growing) {
+            return false;
+        }
+        boolean depth = GL11.glIsEnabled(GL11.GL_DEPTH_TEST), lit = GL11.glIsEnabled(GL11.GL_LIGHTING);
+        GlStateManager.pushMatrix();
+        GlStateManager.translate(x, y, z);
+        GlStateManager.scale(unit, unit, unit);
+        // проекция каркаса (GuiReplicator.project): экран x = x1, вниз = −y2, к зрителю = −глубина
+        GlStateManager.rotate(180, 1, 0, 0);
+        GlStateManager.rotate(-25, 1, 0, 0);
+        GlStateManager.rotate(30, 0, 1, 0);
+        // каркас стоит как клон в камере: перед фигуры к −z, тело x 0..8, z 0..4
+        GlStateManager.translate(4, 0, 2);
+        GlStateManager.rotate(180, 0, 1, 0);
+        if (dead) {
+            GlStateManager.translate(0, 0, -DEAD_SHIFT); // как в камере: обмякшая фигура посередине
+        }
+        GlStateManager.enableDepth();
+        GlStateManager.depthMask(true);
+        body(te, f, growing);
+        // окно рисуется дальше плоским (линия печати, подтверждение корзины): глубина клона им не мешает
+        GlStateManager.clear(GL11.GL_DEPTH_BUFFER_BIT);
+        if (!depth) {
+            GlStateManager.disableDepth();
+        }
+        if (!lit) {
+            GlStateManager.disableLighting();
+        }
+        GlStateManager.popMatrix();
+        GlStateManager.color(1, 1, 1, 1);
+        return true;
+    }
+
+    /** Растёт ли слой текущей стадии настолько, что его видно (меньше 1/20 пикселя клона — нет). */
+    private static boolean growing(TileReplicator te, float f) {
+        return !te.isDead() && te.getStage() < TileReplicator.STAGES && f * 32 >= 0.05F;
+    }
+
+    /** Сам клон в его координатах (пиксели модели, ступни y = 0, перед +z): слои, срез; погибший — обмякший. */
+    private static void body(TileReplicator te, float f, boolean growing) {
+        boolean dead = te.isDead();
+        int st = te.getStage();
+        int g = st + 1;
+        CloneSkins.Skin skin = null;
+        if (dead || st + (growing ? 1 : 0) >= 4) { // скин нужен и мышцам: при тонком скине руки тонкие
+            ItemStack pattern = te.getPattern();
+            UUID id = pattern.isEmpty() ? null : ItemBloodSample.getOwnerId(pattern);
+            skin = id != null ? CloneSkins.get(id, ItemBloodSample.getOwnerName(pattern), ItemBloodSample.getSkin(pattern))
+                    : CloneSkins.get(te.getOwnerId(), te.getOwnerName(), null);
+        }
+        boolean slim = skin != null && skin.slim;
+
         GlStateManager.enableTexture2D();
         GlStateManager.disableLighting();
         GlStateManager.disableCull();
@@ -98,36 +171,37 @@ final class CloneRenderer {
         GlStateManager.color(1, 1, 1, 1);
 
         if (dead) {
-            // обмякший клон наклонён вперёд (голова выходит пикселей на 9 перед ступнями, затылок — на 3 назад):
-            // сдвинуть назад, чтобы он был посередине камеры (Антон 08.11)
-            GlStateManager.translate(0, 0, -DEAD_SHIFT);
-            layer(renderer, 5, -ALL, ALL, slim, skin, DEAD_TINT, true);
+            layer(5, -ALL, ALL, slim, skin, NO_TINT, true); // бледная копия скина (PaleSkins)
         } else {
             // растущий слой — ниже clip; мышцы закрывают оболочки (они шире мышц головы и тела) — кости и оболочки
             // под растущими мышцами рисуются только выше clip
             float clip = growing ? (f >= 1 ? ALL : f * 32) : -ALL;
             float under = growing && g == 4 ? clip : -ALL;
             if (st >= 5) {
-                layer(renderer, 5, -ALL, ALL, slim, skin, NO_TINT, false);
+                layer(5, -ALL, ALL, slim, skin, NO_TINT, false);
             } else if (st == 4) {
-                layer(renderer, 4, -ALL, ALL, slim, skin, NO_TINT, false);
+                layer(4, -ALL, ALL, slim, skin, NO_TINT, false);
             } else {
                 if (st >= 1) {
-                    layer(renderer, 1, under, ALL, slim, skin, NO_TINT, false);
+                    layer(1, under, ALL, slim, skin, NO_TINT, false);
                 }
                 if (st == 2 || st == 3) {
-                    layer(renderer, st, under, ALL, slim, skin, NO_TINT, false);
+                    layer(st, under, ALL, slim, skin, NO_TINT, false);
                 }
             }
             if (growing) {
-                layer(renderer, g, -ALL, clip, slim, skin, NO_TINT, false);
+                layer(g, -ALL, clip, slim, skin, NO_TINT, false);
+                if (f < 1) {
+                    cut(g, clip, slim, skin, te.getLookLight());
+                }
             }
         }
-
         GlStateManager.enableCull();
         GlStateManager.enableLighting();
-        OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, lastX, lastY);
-        GlStateManager.popMatrix();
+    }
+
+    private static void bind(ResourceLocation texture) {
+        Minecraft.getMinecraft().getTextureManager().bindTexture(texture);
     }
 
     /** Свет в камере: как у блоков машины (берётся ярче из двух), не темнее 8 по свету блоков — UU слегка светится. */
@@ -139,24 +213,72 @@ final class CloneRenderer {
         return sky << 16 | block;
     }
 
+    /**
+     * Светящийся срез растущего слоя на высоте clip: поле с текстурой, затем кромка без текстуры. Цвет — как у линии печати
+     * в окне: рост бирюзовый, откат и перегрузка красные, ожидание (UU, энергия) жёлтое, пауза серая. Полная яркость.
+     */
+    private static void cut(int layer, float clip, boolean slim, CloneSkins.Skin skin,
+                            BlockReplicator.Light state) {
+        int rgb;
+        switch (state) {
+            case GROW:
+                rgb = 0x5CC8C8;
+                break;
+            case ALERT:
+                rgb = 0xDC4646;
+                break;
+            case WAIT:
+                rgb = 0xFFD84A;
+                break;
+            default: // пауза; без энергии слои откатываются — это ALERT
+                rgb = 0x969696;
+        }
+        OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, 240, 240);
+        layerMode(layer, -ALL, clip, slim, skin, lighten(rgb, 0.25F), false, CAP);
+        GlStateManager.disableTexture2D();
+        layerMode(layer, -ALL, clip, slim, skin, lighten(rgb, 0.45F), false, CAP_RIM);
+        GlStateManager.enableTexture2D();
+    }
+
+    /** Цвет, подмешанный к белому на долю k (срез светлее, чем линия печати: он на тёмной UU). */
+    private static float[] lighten(int rgb, float k) {
+        float[] c = new float[3];
+        for (int i = 0; i < 3; i++) {
+            float v = (rgb >> (16 - 8 * i) & 255) / 255F;
+            c[i] = v + (1 - v) * k;
+        }
+        return c;
+    }
+
     /** Слой 1..5 по частям тела; видна часть коробок с yLo <= y <= yHi (пиксели клона). */
-    private static void layer(RenderReplicator renderer, int layer, float yLo, float yHi, boolean slim,
+    private static void layer(int layer, float yLo, float yHi, boolean slim,
                               CloneSkins.Skin skin, float[] tint, boolean slump) {
-        switch (layer) {
+        layerMode(layer, yLo, yHi, slim, skin, tint, slump, FACES);
+    }
+
+    private static void layerMode(int layer, float yLo, float yHi, boolean slim,
+                                  CloneSkins.Skin skin, float[] tint, boolean slump, int mode) {
+        switch (mode == CAP ? 0 : mode == CAP_RIM ? -1 : layer) {
+            case 0:
+                bind(CUT);
+                break;
+            case -1:
+                break; // кромка без текстуры
             case 1:
-                renderer.bind(FreshSkeletonTexture.LOCATION);
+                bind(FreshSkeletonTexture.LOCATION);
                 break;
             case 2:
-                renderer.bind(NERVES);
+                bind(NERVES);
                 break;
             case 3:
-                renderer.bind(VESSELS);
+                bind(VESSELS);
                 break;
             case 4:
-                renderer.bind(MUSCLE);
+                bind(MUSCLE);
                 break;
             default:
-                renderer.bind(skin.texture);
+                // погибший (обмякший) — мертвецки бледный, вместо прежнего серо-зелёного (Антон 08.11)
+                bind(slump ? PaleSkins.get(skin.texture) : skin.texture);
         }
         Tessellator tess = Tessellator.getInstance();
         BufferBuilder buf = tess.getBuffer();
@@ -166,7 +288,7 @@ final class CloneRenderer {
                 slump(part);
             }
             buf.begin(GL11.GL_QUADS, DefaultVertexFormats.POSITION_TEX_COLOR_NORMAL);
-            Box b = new Box(buf, yLo, yHi, tint);
+            Box b = new Box(buf, yLo, yHi, tint, mode);
             switch (layer) {
                 case 1:
                     skeleton(b, part);
@@ -333,13 +455,15 @@ final class CloneRenderer {
         private final BufferBuilder buf;
         private final float yLo, yHi;
         private final float[] tint;
+        private final int mode;
         private float texW, texH;
 
-        Box(BufferBuilder buf, float yLo, float yHi, float[] tint) {
+        Box(BufferBuilder buf, float yLo, float yHi, float[] tint, int mode) {
             this.buf = buf;
             this.yLo = yLo;
             this.yHi = yHi;
             this.tint = tint;
+            this.mode = mode;
         }
 
         void tex(float w, float h) {
@@ -362,6 +486,13 @@ final class CloneRenderer {
             float x1 = x + w + inflate, y1 = y + h + inflate, z1 = z + d + inflate;
             float lo = Math.max(y0, yLo), hi = Math.min(y1, yHi);
             if (hi <= lo) {
+                return;
+            }
+            if (mode != FACES) {
+                if (yHi < y1) { // срез только у коробок, через которые проходит линия роста
+                    // у вложенных коробок (кожа и второй слой) крышка внешней чуть выше: без мерцания на общей высоте
+                    cap(x0, z0, x1, z1, hi + inflate * 0.02F);
+                }
                 return;
             }
             float vt = (v + td + (y1 - hi) / (y1 - y0) * th) / texH, vb = (v + td + (y1 - lo) / (y1 - y0) * th) / texH;
@@ -391,6 +522,26 @@ final class CloneRenderer {
                 float uc = (u + td + tw) / texW, ud = (u + td + tw * 2) / texW;
                 quad(xa, y0, z0, uc, va, xa, y0, z1, uc, vz, xb, y0, z1, ud, vz, xb, y0, z0, ud, va, 0, -1, 0, 0.5F);
             }
+        }
+
+        /** Крышка среза на высоте y: поле внутри кромки (текстура по координатам клона) или сама кромка — 4 полосы. */
+        private void cap(float x0, float z0, float x1, float z1, float y) {
+            float r = Math.min(RIM, Math.min(x1 - x0, z1 - z0) / 4);
+            float ix0 = x0 + r, ix1 = x1 - r, iz0 = z0 + r, iz1 = z1 - r;
+            if (mode == CAP) {
+                flat(ix0, iz0, ix1, iz1, y, true);
+            } else {
+                flat(x0, z0, x1, iz0, y, false);
+                flat(x0, iz1, x1, z1, y, false);
+                flat(x0, iz0, ix0, iz1, y, false);
+                flat(ix1, iz0, x1, iz1, y, false);
+            }
+        }
+
+        private void flat(float x0, float z0, float x1, float z1, float y, boolean tex) {
+            float u0 = tex ? x0 / CUT_TILE : 0, u1 = tex ? x1 / CUT_TILE : 0;
+            float v0 = tex ? z0 / CUT_TILE : 0, v1 = tex ? z1 / CUT_TILE : 0;
+            quad(x0, y, z0, u0, v0, x0, y, z1, u0, v1, x1, y, z1, u1, v1, x1, y, z0, u1, v0, 0, 1, 0, 1F);
         }
 
         private void quad(float x0, float y0, float z0, float u0, float v0, float x1, float y1, float z1, float u1, float v1,

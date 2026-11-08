@@ -36,7 +36,11 @@ public class RenderReplicator extends TileEntitySpecialRenderer<TileReplicator> 
     /** Пузырьки полупрозрачные (Антон 08.11). */
     private static final float BUB_ALPHA = 0.4F;
 
-    private static final int LED_UU = 0xC05CD8, LED_EU = 0xE8C83A, SEGMENT = 0x7FD6D6, HEALTH = 0xD83A30;
+    private static final int LED_UU = 0xC05CD8, LED_EU = 0xE8C83A, HEALTH = 0xD83A30;
+    /** Выращенные стадии — зелёные, как текст готовой стадии в окне (Антон 08.11). */
+    private static final int SEGMENT_DONE = 0x5ADC6E;
+    /** Пульсация лампочек и текущей стадии, тиков на период: медленно — идёт процесс, быстро — тревога (Антон 08.11). */
+    private static final float PULSE_SLOW = 40, PULSE_FAST = 12;
 
     /** Цвета ореола по BlockReplicator.Light (OFF не рисуется). */
     private static int glowColor(BlockReplicator.Light light) {
@@ -77,7 +81,7 @@ public class RenderReplicator extends TileEntitySpecialRenderer<TileReplicator> 
         GlStateManager.disableLighting();
         GlStateManager.disableCull();
 
-        drawScreen(te);
+        drawScreen(te, partialTicks);
         if (MRConfig.CLIENT.ringGlow && light != BlockReplicator.Light.OFF) {
             drawGlow(glowColor(light));
         }
@@ -157,19 +161,22 @@ public class RenderReplicator extends TileEntitySpecialRenderer<TileReplicator> 
      * (как в генераторе gen_textures5a.py). Лампочки UU (9, 4) и EU (11, 4), деления стадий 14 + 2i в строке 4,
      * полоса здоровья 9..22 в строке 5.
      */
-    private void drawScreen(TileReplicator te) {
+    private void drawScreen(TileReplicator te, float partialTicks) {
         Tessellator tess = Tessellator.getInstance();
         BufferBuilder buf = tess.getBuffer();
         buf.begin(GL11.GL_QUADS, DefaultVertexFormats.POSITION_COLOR);
-        if (te.getLookUu()) {
-            texel(buf, 9, 4, 1, LED_UU);
-        }
-        if (te.getLookEu()) {
-            texel(buf, 11, 4, 1, LED_EU);
-        }
+        float time = te.getWorld().getTotalWorldTime() % 24000 + partialTicks;
+        lamp(buf, 9, te.getLookUuLamp(), LED_UU, time);
+        lamp(buf, 11, te.getLookEuLamp(), LED_EU, time);
         int stage = te.getLookStage();
         for (int i = 0; i < Math.min(stage, TileReplicator.STAGES); i++) {
-            texel(buf, 14 + i * 2, 4, 1, SEGMENT);
+            texel(buf, 14 + i * 2, 4, 1, SEGMENT_DONE);
+        }
+        // текущая стадия — цветом колец: рост медленно пульсирует, тревога быстро, ожидание и пауза ровно (Антон 08.11)
+        BlockReplicator.Light light = te.getLookLight();
+        if (te.getLookCurrent() && stage < TileReplicator.STAGES && light != BlockReplicator.Light.OFF) {
+            int mode = light == BlockReplicator.Light.GROW ? 2 : light == BlockReplicator.Light.ALERT ? 3 : 1;
+            texel(buf, 14 + stage * 2, 4, 1, dim(glowColor(light), pulse(mode, time)));
         }
         if (stage >= TileReplicator.STAGES) {
             int w = Math.round(14F * te.getLookHealth() / TileReplicator.MAX_HEALTH);
@@ -178,6 +185,27 @@ public class RenderReplicator extends TileEntitySpecialRenderer<TileReplicator> 
             }
         }
         tess.draw();
+    }
+
+    /** Лампочка в строке 4 по режиму: 0 не горит, 1 ровно, 2 медленно, 3 быстро. */
+    private static void lamp(BufferBuilder buf, int u, int mode, int rgb, float time) {
+        if (mode != 0) {
+            texel(buf, u, 4, 1, dim(rgb, pulse(mode, time)));
+        }
+    }
+
+    /** Яркость 1 (ровно) или мягкая пульсация 0,25..1. */
+    private static float pulse(int mode, float time) {
+        if (mode < 2) {
+            return 1;
+        }
+        float period = mode == 2 ? PULSE_SLOW : PULSE_FAST;
+        return 0.25F + 0.75F * (0.5F + 0.5F * (float) Math.cos(Math.PI * 2 * time / period));
+    }
+
+    private static int dim(int rgb, float k) {
+        int r = Math.round((rgb >> 16 & 255) * k), g = Math.round((rgb >> 8 & 255) * k), b = Math.round((rgb & 255) * k);
+        return r << 16 | g << 8 | b;
     }
 
     /** Полоса из w текселей лица начиная с u (вправо по картинке), строка vy снизу; чуть перед гранью. */

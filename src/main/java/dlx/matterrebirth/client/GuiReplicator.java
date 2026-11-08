@@ -86,6 +86,8 @@ public class GuiReplicator extends GuiContainer {
      */
     private static final float[][] GHOST_FACES; // по 8 чисел: 4 точки x,y от левого верхнего угла каркаса
     private static final float GHOST_W, GHOST_H;
+    /** Начало координат каркаса на экране относительно его левого верхнего угла (для клона в окне, 5б+). */
+    private static final float GHOST_OX, GHOST_OY, GHOST_UNIT;
 
     static {
         double th = Math.toRadians(30), ph = Math.toRadians(25), unit = 1.74;
@@ -132,6 +134,9 @@ public class GuiReplicator extends GuiContainer {
         }
         GHOST_W = (float) ((maxX - minX) * unit);
         GHOST_H = (float) ((maxY - minY) * unit);
+        GHOST_OX = (float) (-minX * unit);
+        GHOST_OY = (float) (-minY * unit);
+        GHOST_UNIT = (float) unit;
     }
 
     /** Поворот вокруг вертикали на th, наклон на ph; y экрана вниз. Возвращает x, y, глубину (больше — дальше). */
@@ -146,6 +151,14 @@ public class GuiReplicator extends GuiContainer {
     private static final int YES_X = CONF_X + 8, NO_X = CONF_X + CONF_W - 30, CONF_BTN_Y = CONF_Y + 26;
 
     private final ContainerReplicator container;
+    /**
+     * Плавные шкалы (Антон 08.11): значения с сервера приходят ступенями (тысячные, раз в тик), окно догоняет их
+     * понемногу каждый тик и рисует между тиками с дробными координатами — линия печати, шкала стадий и здоровья,
+     * бак и молния движутся без рывков. Прогресс стадии при смене стадии — сразу.
+     */
+    private final Smooth progress = new Smooth(), healthBar = new Smooth(), fluidBar = new Smooth(), energyBar = new Smooth();
+    private int smoothStage = -1;
+    private float partial;
     /** Открыто подтверждение корзины (только в этом окне, на клиенте). */
     private boolean confirming;
     /** HEI/JEI установлен: без него кнопки «i» нет. */
@@ -159,7 +172,25 @@ public class GuiReplicator extends GuiContainer {
     }
 
     @Override
+    public void updateScreen() {
+        super.updateScreen();
+        int stage = container.getStage();
+        progress.tick(container.getStageProgress(), stage != smoothStage);
+        smoothStage = stage;
+        healthBar.tick(container.getHealthFraction(), false);
+        fluidBar.tick(container.getFluid(), container.getFluid() <= 0);
+        int cap = container.getCapacity();
+        energyBar.tick(cap > 0 ? (float) container.getEnergy() / cap : 0, container.getEnergy() <= 0);
+    }
+
+    /** Прогресс текущей стадии для шкал и модели, 0..1, плавно. */
+    private float shownProgress() {
+        return container.getStage() == smoothStage ? progress.get(partial, container.getStageProgress()) : container.getStageProgress();
+    }
+
+    @Override
     public void drawScreen(int mouseX, int mouseY, float partialTicks) {
+        partial = partialTicks;
         drawDefaultBackground();
         super.drawScreen(mouseX, mouseY, partialTicks);
         renderHoveredToolTip(mouseX, mouseY);
@@ -231,7 +262,7 @@ public class GuiReplicator extends GuiContainer {
         int tx = guiLeft + TANK_X, ty = guiTop + TANK_Y;
         if (container.getFluid() > 0) {
             drawTankFrame(6, tx, ty, TANK_H);
-            drawFluid(tx + 4, ty + 4, 12, TANK_H - 8, container.getFluid(), TileReplicator.TANK_CAPACITY);
+            drawFluid(tx + 4, ty + 4, 12, TANK_H - 8, fluidBar.get(partial, container.getFluid()), TileReplicator.TANK_CAPACITY);
             mc.getTextureManager().bindTexture(IC2_COMMON);
             drawTankTicks(38, tx, ty, TANK_H);
         } else {
@@ -292,11 +323,19 @@ public class GuiReplicator extends GuiContainer {
         mc.getTextureManager().bindTexture(IC2_COMMON);
         int cap = container.getCapacity();
         if (cap > 0 && container.getEnergy() > 0) {
-            int h = Math.max(1, Math.min(13, Math.round(13f * container.getEnergy() / cap)));
-            drawTexturedModalRect(guiLeft + BOLT_X, guiTop + BOLT_Y + 13 - h, 116, 65 + 13 - h, 7, h);
+            float h = Math.max(1, Math.min(13, 13f * energyBar.get(partial, (float) container.getEnergy() / cap)));
+            texRect(guiLeft + BOLT_X, guiTop + BOLT_Y + 13 - h, 116, 65 + 13 - h, 7, h);
         }
         drawStageBar();
-        drawGhost();
+        // клон слоями на месте каркаса (5б+, Антон 08.11); каркас остаётся контуром ещё не выращенного, у готового
+        // и погибшего клона (он виден сам: бледный, обмякший) каркаса нет
+        TileReplicator tile = container.getTile();
+        if (!ready() && !tile.isDead()) {
+            drawGhost();
+        }
+        float gx = guiLeft + AREA_CX - GHOST_W / 2, gy = guiTop + AREA_BOTTOM - GHOST_H;
+        float shown = container.getStage() == tile.getStage() ? shownProgress() : tile.getShownGrowth(partialTicks);
+        CloneRenderer.renderGui(tile, shown, gx + GHOST_OX, gy + GHOST_OY, 100, GHOST_UNIT);
         drawScanLine();
         GlStateManager.color(1, 1, 1, 1);
     }
@@ -304,7 +343,7 @@ public class GuiReplicator extends GuiContainer {
     /** Доля выращенного в стадии i: ниже текущей — целиком, текущая — по прогрессу, выше — ничего. */
     private float stageFill(int i) {
         int stage = container.getStage();
-        return i < stage ? 1 : i == stage ? container.getStageProgress() : 0;
+        return i < stage ? 1 : i == stage ? shownProgress() : 0;
     }
 
     /** Шкала стадий слева: высоты отрезков по времени стадий, снизу вверх; выключенный экран — заливка серая. */
@@ -315,10 +354,8 @@ public class GuiReplicator extends GuiContainer {
             // «Поддержание»: та же шкала становится красной шкалой здоровья, одним отрезком снизу вверх
             int inner = BAR_H - 2;
             drawRect(x + 1, top + 1, x + 5, top + BAR_H - 1, 0xFF000000);
-            int f = Math.round(inner * Math.max(0, Math.min(1, container.getHealthFraction())));
-            if (f > 0) {
-                drawRect(x + 1, top + BAR_H - 1 - f, x + 5, top + BAR_H - 1, 0xFF000000 | HEALTH_RED);
-            }
+            float f = inner * Math.max(0, Math.min(1, healthBar.get(partial, container.getHealthFraction())));
+            fill(x + 1, top + BAR_H - 1 - f, x + 5, top + BAR_H - 1, 0xFF000000 | HEALTH_RED);
             return;
         }
         int total = 0;
@@ -331,10 +368,8 @@ public class GuiReplicator extends GuiContainer {
             int h = i < TileReplicator.STAGES - 1 ? Math.round((float) inner * TileReplicator.STAGE_TICKS[i] / total) : y - (top + 1);
             y -= h;
             drawRect(x + 1, y, x + 5, y + h, 0xFF000000);
-            int f = Math.round(h * stageFill(i));
-            if (f > 0) {
-                drawRect(x + 1, y + h - f, x + 5, y + h, 0xFF000000 | STAGE_COLORS[i]); // экран показывает состояние и без заряда (Антон 07.11)
-            }
+            float f = h * stageFill(i);
+            fill(x + 1, y + h - f, x + 5, y + h, 0xFF000000 | STAGE_COLORS[i]); // экран показывает состояние и без заряда (Антон 07.11)
             y -= 1;
         }
     }
@@ -380,11 +415,11 @@ public class GuiReplicator extends GuiContainer {
         }
         // цвет как у значка текущей стадии в списке: рост бирюзовый, ожидание жёлтое, откат красный, пауза серая (Антон 07–08.11)
         int rgb = stageMarkColor();
-        int y = guiTop + Math.round(AREA_BOTTOM - GHOST_H * container.getStageProgress());
+        float y = guiTop + AREA_BOTTOM - GHOST_H * shownProgress();
         int x1 = guiLeft + Math.round(AREA_CX - GHOST_W / 2) - 3, x2 = guiLeft + Math.round(AREA_CX + GHOST_W / 2) + 1; // не доходит до точек списка
-        drawRect(x1, y - 1, x2, y, 0x40000000 | rgb);
-        drawRect(x1, y, x2, y + 1, 0xB0000000 | rgb);
-        drawRect(x1, y + 1, x2, y + 2, 0x40000000 | rgb);
+        fill(x1, y - 1, x2, y, 0x40000000 | rgb);
+        fill(x1, y, x2, y + 1, 0xB0000000 | rgb);
+        fill(x1, y + 1, x2, y + 2, 0x40000000 | rgb);
     }
 
     /** Цвет текущей стадии: рост бирюзовый, откат красный, пауза серая, иначе (ждёт UU, энергию) жёлтый. */
@@ -607,12 +642,12 @@ public class GuiReplicator extends GuiContainer {
     }
 
     /** Жидкая UU снизу вверх по объёму: текстура жидкости кусками 16x16, как в баках IC2. */
-    private void drawFluid(int x, int y, int w, int h, int amount, int capacity) {
+    private void drawFluid(int x, int y, int w, int h, float amount, int capacity) {
         Fluid fluid = FluidRegistry.getFluid(ReplicatorInventory.UU_FLUID);
         if (fluid == null || fluid.getStill() == null || amount <= 0 || capacity <= 0) {
             return;
         }
-        int fh = Math.max(1, Math.min(h, Math.round((float) h * amount / capacity))); // капля тоже видна
+        float fh = Math.max(1, Math.min(h, h * amount / capacity)); // капля тоже видна
         TextureAtlasSprite sprite = mc.getTextureMapBlocks().getAtlasSprite(fluid.getStill().toString());
         mc.getTextureManager().bindTexture(TextureMap.LOCATION_BLOCKS_TEXTURE);
         int color = fluid.getColor();
@@ -622,8 +657,8 @@ public class GuiReplicator extends GuiContainer {
         buf.begin(GL11.GL_QUADS, DefaultVertexFormats.POSITION_TEX);
         float u0 = sprite.getMinU(), u1 = sprite.getInterpolatedU(Math.min(16, w));
         for (int done = 0; done < fh; done += 16) {
-            int part = Math.min(16, fh - done);
-            int bottom = y + h - done, top = bottom - part;
+            float part = Math.min(16, fh - done);
+            float bottom = y + h - done, top = bottom - part;
             float v0 = sprite.getInterpolatedV(16 - part), v1 = sprite.getMaxV();
             buf.pos(x, bottom, zLevel).tex(u0, v1).endVertex();
             buf.pos(x + w, bottom, zLevel).tex(u1, v1).endVertex();
@@ -632,6 +667,63 @@ public class GuiReplicator extends GuiContainer {
         }
         tess.draw();
         GlStateManager.color(1, 1, 1, 1);
+    }
+
+    /** Прямоугольник с дробными координатами (плавные шкалы), цвет ARGB, как drawRect. */
+    private static void fill(float x1, float y1, float x2, float y2, int argb) {
+        if (x2 <= x1 || y2 <= y1) {
+            return;
+        }
+        float a = (argb >>> 24) / 255F, r = (argb >> 16 & 255) / 255F, g = (argb >> 8 & 255) / 255F, b = (argb & 255) / 255F;
+        Tessellator tess = Tessellator.getInstance();
+        BufferBuilder buf = tess.getBuffer();
+        GlStateManager.enableBlend();
+        GlStateManager.disableTexture2D();
+        GlStateManager.tryBlendFuncSeparate(GlStateManager.SourceFactor.SRC_ALPHA, GlStateManager.DestFactor.ONE_MINUS_SRC_ALPHA,
+                GlStateManager.SourceFactor.ONE, GlStateManager.DestFactor.ZERO);
+        buf.begin(GL11.GL_QUADS, DefaultVertexFormats.POSITION_COLOR);
+        buf.pos(x1, y2, 0).color(r, g, b, a).endVertex();
+        buf.pos(x2, y2, 0).color(r, g, b, a).endVertex();
+        buf.pos(x2, y1, 0).color(r, g, b, a).endVertex();
+        buf.pos(x1, y1, 0).color(r, g, b, a).endVertex();
+        tess.draw();
+        GlStateManager.enableTexture2D();
+        GlStateManager.disableBlend();
+    }
+
+    /** Кусок текстуры 256x256 с дробной высотой и v (молния заряда). */
+    private void texRect(float x, float y, float u, float v, float w, float h) {
+        float k = 1 / 256F;
+        Tessellator tess = Tessellator.getInstance();
+        BufferBuilder buf = tess.getBuffer();
+        buf.begin(GL11.GL_QUADS, DefaultVertexFormats.POSITION_TEX);
+        buf.pos(x, y + h, zLevel).tex(u * k, (v + h) * k).endVertex();
+        buf.pos(x + w, y + h, zLevel).tex((u + w) * k, (v + h) * k).endVertex();
+        buf.pos(x + w, y, zLevel).tex((u + w) * k, v * k).endVertex();
+        buf.pos(x, y, zLevel).tex(u * k, v * k).endVertex();
+        tess.draw();
+    }
+
+    /** Значение шкалы, которое плавно догоняет присланное: раз в тик на четверть разницы, между тиками — по partialTicks. */
+    private static final class Smooth {
+        private float value = Float.NaN, prev;
+
+        void tick(float target, boolean snap) {
+            if (Float.isNaN(value) || snap) {
+                value = prev = target;
+                return;
+            }
+            prev = value;
+            value += (target - value) * 0.25F;
+            if (Math.abs(target - value) <= Math.abs(target) * 1e-4F + 1e-4F) {
+                value = target;
+            }
+        }
+
+        /** До первого тика окна — присланное значение как есть. */
+        float get(float partialTicks, float fallback) {
+            return Float.isNaN(value) ? fallback : prev + (value - prev) * partialTicks;
+        }
     }
 
     /** Деления шкалы: 7 штук на 8 равных частей, средняя длинная. */

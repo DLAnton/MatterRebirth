@@ -377,6 +377,35 @@ public class TileReplicator extends TileEntity implements ITickable {
         }
     }
 
+    /**
+     * Лампочки экранчика (5б+, Антон 08.11): 0 — погасла, 1 — горит ровно, 2 — медленно пульсирует, 3 — быстро.
+     * EU: быстро — откат, перегрузка, готовый клон без энергии (тревога и при пустом запасе); погасла — энергии нет;
+     * медленно — «Диапауза» и «Мало EU» (копит); иначе ровно. UU: быстро — «Нужно UU» (стадии или клону);
+     * ровно — в баке есть UU; иначе погасла.
+     */
+    private int euLamp() {
+        boolean ready = stage >= STAGES;
+        if (status == Status.ROLLBACK || status == Status.OVERLOAD || ready && status == Status.NO_POWER) {
+            return 3;
+        }
+        if (sink.getEnergyStored() < 1) {
+            return 0;
+        }
+        return status == Status.CHARGING || status == Status.LOW_POWER ? 2 : 1;
+    }
+
+    private int uuLamp() {
+        if (status == Status.NEED_UU) {
+            return 3;
+        }
+        return tank.getFluidAmount() > 0 ? 1 : 0;
+    }
+
+    /**
+     * Облик для клиентов одним числом: биты 0–2 цвет колец, 3 есть UU, 4 есть энергия, 5–7 выращенных стадий,
+     * 8–12 здоровье готового клона, 13–14 и 15–16 лампочки EU и UU (euLamp, uuLamp), 17 — есть текущая стадия
+     * (шаблон выбран, рост начат, клон не готов и не погиб): её деление на экранчике горит цветом колец.
+     */
     private int computeLook() {
         int l = computeLight().ordinal();
         if (tank.getFluidAmount() > 0) {
@@ -388,6 +417,12 @@ public class TileReplicator extends TileEntity implements ITickable {
         l |= Math.min(STAGES, stage) << 5;
         if (stage >= STAGES) {
             l |= Math.min(MAX_HEALTH, getHealthShown()) << 8;
+        }
+        l |= euLamp() << 13;
+        l |= uuLamp() << 15;
+        // рост не начат (шаблон ждёт «Начать рост») — деление не горит (Антон 08.11); после нажатия горит и в ожидании UU/энергии
+        if (!pattern.isEmpty() && stage < STAGES && !dead && (hasGrowth() || !paused)) {
+            l |= 1 << 17;
         }
         return l;
     }
@@ -442,6 +477,21 @@ public class TileReplicator extends TileEntity implements ITickable {
 
     public int getLookHealth() {
         return look < 0 ? 0 : Math.min(MAX_HEALTH, (look >> 8) & 31);
+    }
+
+    /** Лампочка EU на экранчике: 0 погасла, 1 ровно, 2 медленно, 3 быстро. */
+    public int getLookEuLamp() {
+        return look < 0 ? 0 : (look >> 13) & 3;
+    }
+
+    /** Лампочка UU на экранчике: 0 погасла, 1 ровно, 3 быстро. */
+    public int getLookUuLamp() {
+        return look < 0 ? 0 : (look >> 15) & 3;
+    }
+
+    /** Есть текущая (растущая или ждущая) стадия. */
+    public boolean getLookCurrent() {
+        return look >= 0 && (look & (1 << 17)) != 0;
     }
 
     public List<float[]> getBubbles() {
