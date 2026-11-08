@@ -14,6 +14,7 @@ import net.minecraft.block.BlockHorizontal;
 import net.minecraft.block.SoundType;
 import net.minecraft.block.material.EnumPushReaction;
 import net.minecraft.block.material.Material;
+import net.minecraft.block.properties.PropertyBool;
 import net.minecraft.block.properties.PropertyDirection;
 import net.minecraft.block.properties.PropertyEnum;
 import net.minecraft.block.state.BlockStateContainer;
@@ -24,6 +25,7 @@ import net.minecraft.init.SoundEvents;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.tileentity.TileEntity;
+import net.minecraft.util.BlockRenderLayer;
 import net.minecraft.util.EnumFacing;
 import net.minecraft.util.EnumHand;
 import net.minecraft.util.IStringSerializable;
@@ -31,12 +33,16 @@ import net.minecraft.util.SoundCategory;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.RayTraceResult;
 import net.minecraft.util.text.TextComponentTranslation;
+import net.minecraft.world.ChunkCache;
+import net.minecraft.world.IBlockAccess;
 import net.minecraft.world.World;
+import net.minecraft.world.chunk.Chunk;
 import net.minecraftforge.common.util.FakePlayer;
 
 import javax.annotation.Nullable;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.Random;
 
 /**
@@ -59,6 +65,33 @@ public class BlockReplicator extends Block implements IWrenchable {
         }
     }
 
+    /*
+     * Облик машины (этап 5а, решения Антона 08.11). Свойства LIGHT и UU не хранятся в блоке: их даёт машина
+     * (getActualState), значит смена вида не трогает мир, только перерисовку. Стекло всегда светлое; пока в баке есть UU,
+     * камера заполнена почти прозрачной жидкой материей IC2 — частью модели в полупрозрачном слое (ReplicatorBakedModel).
+     */
+
+    /** Цвет колец пола и излучателя: как цвет строки состояния окна. */
+    public static final PropertyEnum<Light> LIGHT = PropertyEnum.create("light", Light.class);
+    /** В баке есть UU: камера за стеклом заполнена UU. */
+    public static final PropertyBool UU = PropertyBool.create("uu");
+    /** Слабый свет машины, пока кольца горят (в 1.12 свет блока бесцветный: цвет дают кольца и ореол). */
+    public static final int LIGHT_LEVEL = 5;
+
+    /**
+     * Цвета колец: OFF — погасли (нет энергии), IDLE — белые (пусто без шаблона, пауза), GROW — бирюзовые (рост),
+     * WAIT — жёлтые (нужно UU, диапауза, мало EU), ALERT — красные (откат, перегрузка, клон теряет здоровье, погиб),
+     * OK — зелёные (клон готов и здоров). Номер значения передаётся клиенту: новые только в конец.
+     */
+    public enum Light implements IStringSerializable {
+        OFF, IDLE, GROW, WAIT, ALERT, OK;
+
+        @Override
+        public String getName() {
+            return name().toLowerCase(Locale.ROOT);
+        }
+    }
+
     public BlockReplicator(String name) {
         super(Material.IRON);
         setRegistryName(MatterRebirth.MOD_ID, name);
@@ -67,7 +100,8 @@ public class BlockReplicator extends Block implements IWrenchable {
         setResistance(10.0F);
         setSoundType(SoundType.METAL);
         setHarvestLevel("pickaxe", 1);
-        setDefaultState(blockState.getBaseState().withProperty(FACING, EnumFacing.NORTH).withProperty(PART, Part.LOWER));
+        setDefaultState(blockState.getBaseState().withProperty(FACING, EnumFacing.NORTH).withProperty(PART, Part.LOWER)
+                .withProperty(LIGHT, Light.OFF).withProperty(UU, false));
     }
 
     /**
@@ -247,7 +281,62 @@ public class BlockReplicator extends Block implements IWrenchable {
 
     @Override
     protected BlockStateContainer createBlockState() {
-        return new BlockStateContainer(this, FACING, PART);
+        return new BlockStateContainer(this, FACING, PART, LIGHT, UU);
+    }
+
+    // --- облик (этап 5а) ---
+
+    /**
+     * Главная часть машины без создания TileEntity: в потоках отрисовки чанков (ChunkCache) создавать её нельзя,
+     * поэтому там она только ищется. Нет её (машина ещё собирается) — null.
+     */
+    @Nullable
+    private static TileReplicator lowerTile(IBlockState state, IBlockAccess world, BlockPos pos) {
+        BlockPos lower = lowerPos(state, pos);
+        TileEntity te = world instanceof ChunkCache
+                ? ((ChunkCache) world).getTileEntity(lower, Chunk.EnumCreateEntityType.CHECK)
+                : world.getTileEntity(lower);
+        return te instanceof TileReplicator ? (TileReplicator) te : null;
+    }
+
+    /** Цвет колец и UU в камере берутся у машины (у обеих частей — у нижней). */
+    @Override
+    public IBlockState getActualState(IBlockState state, IBlockAccess world, BlockPos pos) {
+        TileReplicator te = lowerTile(state, world, pos);
+        if (te == null) {
+            return state;
+        }
+        return state.withProperty(LIGHT, te.getLookLight()).withProperty(UU, te.getLookUu());
+    }
+
+    /** Обе части слабо светятся, пока кольца горят. */
+    @Override
+    public int getLightValue(IBlockState state, IBlockAccess world, BlockPos pos) {
+        if (state.getBlock() != this) {
+            return super.getLightValue(state, world, pos);
+        }
+        TileReplicator te = lowerTile(state, world, pos);
+        return te != null && te.getLookLight() != Light.OFF ? LIGHT_LEVEL : 0;
+    }
+
+    /** Машина полая: соседние грани не прячутся, свет проходит внутрь камеры. */
+    @Override
+    public boolean isOpaqueCube(IBlockState state) {
+        return false;
+    }
+
+    @Override
+    public boolean isFullCube(IBlockState state) {
+        return false;
+    }
+
+    /**
+     * Корпус рисуется в непрозрачном слое, стекло и UU в камере — в полупрозрачном (как ванильное цветное стекло и вода:
+     * так их понимают и шейдеры). Какие грани в каком слое, решает модель ReplicatorBakedModel (по текстуре).
+     */
+    @Override
+    public boolean canRenderInLayer(IBlockState state, BlockRenderLayer layer) {
+        return layer == BlockRenderLayer.SOLID || layer == BlockRenderLayer.TRANSLUCENT;
     }
 
     @Override

@@ -1,34 +1,70 @@
 {
+  "forge_marker": 1,
+  "defaults": {
+    "model": "matterrebirth:replicator_lower"
+  },
   "variants": {
-    "facing=north,part=lower": {
-      "model": "matterrebirth:replicator_lower"
+    "part": {
+      "lower": {
+        "model": "matterrebirth:replicator_lower"
+      },
+      "upper": {
+        "model": "matterrebirth:replicator_upper"
+      }
     },
-    "facing=north,part=upper": {
-      "model": "matterrebirth:replicator_upper"
+    "facing": {
+      "north": {},
+      "east": {
+        "y": 90
+      },
+      "south": {
+        "y": 180
+      },
+      "west": {
+        "y": 270
+      }
     },
-    "facing=east,part=lower": {
-      "model": "matterrebirth:replicator_lower",
-      "y": 90
+    "light": {
+      "off": {
+        "textures": {
+          "floor": "matterrebirth:blocks/replicator_floor_off",
+          "ceiling": "matterrebirth:blocks/replicator_ceiling_off"
+        }
+      },
+      "idle": {
+        "textures": {
+          "floor": "matterrebirth:blocks/replicator_floor_idle",
+          "ceiling": "matterrebirth:blocks/replicator_ceiling_idle"
+        }
+      },
+      "grow": {
+        "textures": {
+          "floor": "matterrebirth:blocks/replicator_floor_grow",
+          "ceiling": "matterrebirth:blocks/replicator_ceiling_grow"
+        }
+      },
+      "wait": {
+        "textures": {
+          "floor": "matterrebirth:blocks/replicator_floor_wait",
+          "ceiling": "matterrebirth:blocks/replicator_ceiling_wait"
+        }
+      },
+      "alert": {
+        "textures": {
+          "floor": "matterrebirth:blocks/replicator_floor_alert",
+          "ceiling": "matterrebirth:blocks/replicator_ceiling_alert"
+        }
+      },
+      "ok": {
+        "textures": {
+          "floor": "matterrebirth:blocks/replicator_floor_ok",
+          "ceiling": "matterrebirth:blocks/replicator_ceiling_ok"
+        }
+      }
     },
-    "facing=east,part=upper": {
-      "model": "matterrebirth:replicator_upper",
-      "y": 90
-    },
-    "facing=south,part=lower": {
-      "model": "matterrebirth:replicator_lower",
-      "y": 180
-    },
-    "facing=south,part=upper": {
-      "model": "matterrebirth:replicator_upper",
-      "y": 180
-    },
-    "facing=west,part=lower": {
-      "model": "matterrebirth:replicator_lower",
-      "y": 270
-    },
-    "facing=west,part=upper": {
-      "model": "matterrebirth:replicator_upper",
-      "y": 270
+    "uu": {
+      "false": {},
+      "true": {}
     }
   }
 }

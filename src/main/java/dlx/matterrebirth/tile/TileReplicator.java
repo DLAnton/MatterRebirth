@@ -1,5 +1,6 @@
 package dlx.matterrebirth.tile;
 
+import dlx.matterrebirth.MatterRebirth;
 import dlx.matterrebirth.block.BlockReplicator;
 import dlx.matterrebirth.chunk.ReplicatorChunks;
 import dlx.matterrebirth.energy.ReplicatorSink;
@@ -22,6 +23,7 @@ import net.minecraft.network.play.server.SPacketUpdateTileEntity;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.EnumFacing;
 import net.minecraft.util.ITickable;
+import net.minecraft.util.math.AxisAlignedBB;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.World;
 import net.minecraftforge.common.capabilities.Capability;
@@ -37,6 +39,8 @@ import net.minecraftforge.fluids.capability.IFluidTankProperties;
 import net.minecraftforge.items.CapabilityItemHandler;
 import net.minecraftforge.items.IItemHandler;
 import net.minecraftforge.items.ItemHandlerHelper;
+import net.minecraftforge.fml.relauncher.Side;
+import net.minecraftforge.fml.relauncher.SideOnly;
 
 import javax.annotation.Nullable;
 import java.util.ArrayList;
@@ -169,6 +173,19 @@ public class TileReplicator extends TileEntity implements ITickable {
     /** Выбранный шаблон: копия образца крови из хранилища шаблонов; машина хранит её у себя, как репликатор IC2. */
     private ItemStack pattern = ItemStack.EMPTY;
 
+    /*
+     * Облик снаружи (этап 5а): цвет колец, стекло, огни экранчика основания. Сервер считает его каждый тик и шлёт
+     * клиентам только устоявшийся (LOOK_DELAY тиков без изменений): мигание состояния на границе не дёргает
+     * перерисовку и свет. Упаковано в одно число: биты 0–2 цвет колец (BlockReplicator.Light), 3 — UU в баке,
+     * 4 — есть энергия, 5–7 стадия 0..5, 8–12 здоровье 0..20. -1 — ещё не посчитан (всё погашено).
+     */
+    private static final int LOOK_DELAY = 10;
+    private int look = -1;
+    private int pendingLook = -1;
+    private int pendingTicks;
+    /** Пузырьки в камере (только клиент): двигает ProxyClient.tickBubbles, рисует RenderReplicator. */
+    private final List<float[]> bubbles = new ArrayList<>();
+
     /** Билет загрузки чанка проверяется на первом тике машины на сервере. */
     private boolean chunkTicketChecked;
 
@@ -239,6 +256,8 @@ public class TileReplicator extends TileEntity implements ITickable {
     public void update() {
         sink.update(); // в сеть IC2 встаём на первом тике, когда соседи уже загружены
         if (world.isRemote) {
+            // пузырьки от площадки, пока идёт рост и в баке есть UU (идея Антона 08.11); всплывшие доживают и без роста
+            MatterRebirth.proxy.tickBubbles(world, pos, bubbles, getLookLight() == BlockReplicator.Light.GROW && getLookUu());
             return;
         }
         if (!chunkTicketChecked) {
@@ -264,12 +283,122 @@ public class TileReplicator extends TileEntity implements ITickable {
             sync();
         }
         alarm();
+        updateLook();
         int signal = comparatorSignal();
         if (signal != lastSignal) {
             lastSignal = signal;
             world.updateComparatorOutputLevel(pos, MRContent.replicator);
             world.updateComparatorOutputLevel(pos.up(), MRContent.replicator);
         }
+    }
+
+    // --- облик (этап 5а) ---
+
+    /**
+     * Цвет колец по состоянию (список Антона 08.11): рост — бирюзовый; нужно UU, диапауза, мало EU — жёлтый;
+     * откат, перегрузка, клон теряет здоровье (без UU или без энергии), клон погиб — красный; клон готов и здоров —
+     * зелёный; пауза и пустая машина — белый. Погасшие кольца — только когда в запасе нет энергии.
+     */
+    private BlockReplicator.Light computeLight() {
+        boolean ready = stage >= STAGES;
+        switch (status) {
+            case GROWING:
+                return BlockReplicator.Light.GROW;
+            case READY:
+                return BlockReplicator.Light.OK;
+            case NEED_UU:
+                return ready ? BlockReplicator.Light.ALERT : BlockReplicator.Light.WAIT;
+            case CHARGING:
+            case LOW_POWER:
+                return BlockReplicator.Light.WAIT;
+            case ROLLBACK:
+            case OVERLOAD:
+            case DEAD:
+                return BlockReplicator.Light.ALERT;
+            case NO_POWER:
+                // готовый клон без энергии теряет здоровье — тревога; пустая камера без энергии — всё погасло
+                return ready ? BlockReplicator.Light.ALERT : BlockReplicator.Light.OFF;
+            default: // IDLE, PAUSED
+                return sink.getEnergyStored() >= 1 ? BlockReplicator.Light.IDLE : BlockReplicator.Light.OFF;
+        }
+    }
+
+    private int computeLook() {
+        int l = computeLight().ordinal();
+        if (tank.getFluidAmount() > 0) {
+            l |= 8;
+        }
+        if (sink.getEnergyStored() >= 1) {
+            l |= 16;
+        }
+        l |= Math.min(STAGES, stage) << 5;
+        if (stage >= STAGES) {
+            l |= Math.min(MAX_HEALTH, getHealthShown()) << 8;
+        }
+        return l;
+    }
+
+    /** Новый облик уходит клиентам, когда продержался LOOK_DELAY тиков (первый — сразу). */
+    private void updateLook() {
+        int now = computeLook();
+        if (now == look) {
+            pendingLook = -1;
+            pendingTicks = 0;
+            return;
+        }
+        if (now != pendingLook) {
+            pendingLook = now;
+            pendingTicks = 0;
+        }
+        if (look >= 0 && ++pendingTicks < LOOK_DELAY) {
+            return;
+        }
+        int old = look;
+        look = now;
+        pendingLook = -1;
+        pendingTicks = 0;
+        sync();
+        if (isLit(old) != isLit(now)) {
+            world.checkLight(pos);
+            world.checkLight(pos.up());
+        }
+    }
+
+    private static boolean isLit(int look) {
+        return look >= 0 && (look & 7) != BlockReplicator.Light.OFF.ordinal();
+    }
+
+    public BlockReplicator.Light getLookLight() {
+        BlockReplicator.Light[] all = BlockReplicator.Light.values();
+        int i = look & 7;
+        return look < 0 || i >= all.length ? BlockReplicator.Light.OFF : all[i];
+    }
+
+    public boolean getLookUu() {
+        return look >= 0 && (look & 8) != 0;
+    }
+
+    public boolean getLookEu() {
+        return look >= 0 && (look & 16) != 0;
+    }
+
+    public int getLookStage() {
+        return look < 0 ? 0 : Math.min(STAGES, (look >> 5) & 7);
+    }
+
+    public int getLookHealth() {
+        return look < 0 ? 0 : Math.min(MAX_HEALTH, (look >> 8) & 31);
+    }
+
+    public List<float[]> getBubbles() {
+        return bubbles;
+    }
+
+    /** Отрисовщик рисует по высоте обеих частей (экранчик, ореол колец, позже клон). */
+    @Override
+    @SideOnly(Side.CLIENT)
+    public AxisAlignedBB getRenderBoundingBox() {
+        return new AxisAlignedBB(pos, pos.add(1, 2, 1));
     }
 
     /** Пока здоровье клона падает, раз в 3 секунды тревожный сигнал IC2 у машины (первый — сразу). */
@@ -1206,6 +1335,7 @@ public class TileReplicator extends TileEntity implements ITickable {
         dead = tag.getBoolean("Dead");
         repeat = tag.getBoolean("Repeat");
         paused = tag.getBoolean("Paused");
+        look = tag.hasKey("Look") ? tag.getInteger("Look") : -1;
         pattern = tag.hasKey("Pattern") ? new ItemStack(tag.getCompoundTag("Pattern")) : ItemStack.EMPTY;
         if (tag.hasUniqueId("OwnerId")) {
             ownerId = tag.getUniqueId("OwnerId");
@@ -1227,7 +1357,16 @@ public class TileReplicator extends TileEntity implements ITickable {
 
     @Override
     public void onDataPacket(NetworkManager net, SPacketUpdateTileEntity pkt) {
+        int old = look;
         readFromNBT(pkt.getNbtCompound());
+        if (old != look && world != null) {
+            // облик сменился: перерисовать обе части (кольца, стекло), при смене «горит / погасло» пересчитать свет
+            world.markBlockRangeForRenderUpdate(pos, pos.up());
+            if (isLit(old) != isLit(look)) {
+                world.checkLight(pos);
+                world.checkLight(pos.up());
+            }
+        }
     }
 
     @Override
@@ -1246,6 +1385,7 @@ public class TileReplicator extends TileEntity implements ITickable {
         tag.setBoolean("Dead", dead);
         tag.setBoolean("Repeat", repeat);
         tag.setBoolean("Paused", paused);
+        tag.setInteger("Look", look);
         if (!pattern.isEmpty()) {
             tag.setTag("Pattern", pattern.writeToNBT(new NBTTagCompound()));
         }

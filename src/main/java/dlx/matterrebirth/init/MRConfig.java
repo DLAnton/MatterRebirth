@@ -20,6 +20,19 @@ public class MRConfig {
     @Config.LangKey("matterrebirth.config.general")
     public static final General GENERAL = new General();
 
+    @Config.Name("client")
+    @Config.LangKey("matterrebirth.config.client")
+    public static final Client CLIENT = new Client();
+
+    public static class Client {
+
+        // ореол колец рисует отрисовщик машины; с шейдерами может выглядеть иначе — тогда выключить (Антон 08.11)
+        @Config.Name("ringGlow")
+        @Config.LangKey("matterrebirth.config.client.ringGlow")
+        @Config.Comment("Soft colored glow around the clone replicator's floor and emitter rings. Turn it off if it looks wrong with a shader pack; the rings keep their color.")
+        public boolean ringGlow = true;
+    }
+
     public static class General {
 
         @Config.Name("maxReplicatorsPerPlayer")

@@ -75,7 +75,8 @@ public class GuiReplicator extends GuiContainer {
     private static final int[] STAGE_COLORS = {0xE2DABE, 0xEBCD46, 0xCD3737, 0xB9555F, 0xDEAA87};
     private static final int BAR_FRAME = 0x3C3C3C;
     private static final int TITLE = 0xC8C8C8, DONE = 0x5ADC6E, DIM = 0x505050, PAUSE_GREY = 0x969696, RED = 0xDC4646;
-    private static final int HEALTH_RED = 0xC82828; // шкала здоровья на экране «Поддержание» (макет 07.11)
+    private static final int HEALTH_RED = 0xC82828;
+    private static final int GROW_CYAN = 0x5CC8C8; // рост бирюзовый, как кольца машины (Антон 08.11) // шкала здоровья на экране «Поддержание» (макет 07.11)
     private static final String[] STAGE_KEYS = {"skeleton", "nerves", "vessels", "muscles", "skin"};
 
     /*
@@ -377,7 +378,7 @@ public class GuiReplicator extends GuiContainer {
         if (stage >= TileReplicator.STAGES || !container.hasGrowth()) {
             return;
         }
-        // цвет как у значка текущей стадии в списке: рост жёлтый, откат красный, пауза серая (предложение Антона 07.11)
+        // цвет как у значка текущей стадии в списке: рост бирюзовый, ожидание жёлтое, откат красный, пауза серая (Антон 07–08.11)
         int rgb = stageMarkColor();
         int y = guiTop + Math.round(AREA_BOTTOM - GHOST_H * container.getStageProgress());
         int x1 = guiLeft + Math.round(AREA_CX - GHOST_W / 2) - 3, x2 = guiLeft + Math.round(AREA_CX + GHOST_W / 2) + 1; // не доходит до точек списка
@@ -386,9 +387,11 @@ public class GuiReplicator extends GuiContainer {
         drawRect(x1, y + 1, x2, y + 2, 0x40000000 | rgb);
     }
 
-    /** Цвет текущей стадии: откат красный, пауза серая, иначе жёлтый. */
+    /** Цвет текущей стадии: рост бирюзовый, откат красный, пауза серая, иначе (ждёт UU, энергию) жёлтый. */
     private int stageMarkColor() {
         switch (container.getStatus()) {
+            case GROWING:
+                return GROW_CYAN;
             case ROLLBACK:
             case NO_POWER:
             case OVERLOAD:
