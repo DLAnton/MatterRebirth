@@ -1,5 +1,6 @@
 package dlx.matterrebirth.item;
 
+import com.mojang.authlib.properties.Property;
 import net.minecraft.client.resources.I18n;
 import net.minecraft.client.util.ITooltipFlag;
 import net.minecraft.creativetab.CreativeTabs;
@@ -16,13 +17,15 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Образец крови: шприц с полной пробиркой. Хранит владельца (UUID и имя на момент забора).
+ * Образец крови: шприц с полной пробиркой. Хранит владельца (UUID и имя на момент забора) и его скин, если сервер его знает.
  * Клон воскрешает только владельца образца.
  */
 public class ItemBloodSample extends ItemBase {
 
     private static final String TAG_OWNER = "Owner";
     private static final String TAG_NAME = "Name";
+    /** Скин донора на момент забора: свойство «textures» его профиля (адрес картинки скина), без подписи. */
+    private static final String TAG_SKIN = "Skin";
 
     public ItemBloodSample(String name) {
         super(name, 1);
@@ -33,8 +36,21 @@ public class ItemBloodSample extends ItemBase {
         NBTTagCompound owner = new NBTTagCompound();
         owner.setUniqueId("Id", player.getUniqueID());
         owner.setString(TAG_NAME, player.getName());
+        // скин для кожи клона (Антон 08.11): так клону не нужен запрос к Mojang, картинка берётся из кэша скинов игры.
+        // В одиночной игре и на сервере без проверки входа у профиля этого свойства нет — тогда не пишется
+        for (Property p : player.getGameProfile().getProperties().get("textures")) {
+            owner.setString(TAG_SKIN, p.getValue());
+            break;
+        }
         stack.setTagInfo(TAG_OWNER, owner);
         return stack;
+    }
+
+    /** Скин донора, запомненный при заборе (значение свойства «textures» профиля), или null. */
+    @Nullable
+    public static String getSkin(ItemStack stack) {
+        NBTTagCompound owner = stack.getSubCompound(TAG_OWNER);
+        return owner != null && owner.hasKey(TAG_SKIN) ? owner.getString(TAG_SKIN) : null;
     }
 
     /** Копия образца: один предмет, в NBT только владелец. Так выглядит шаблон в сканере IC2. */

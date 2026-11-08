@@ -22,13 +22,13 @@ import net.minecraft.block.state.IBlockState;
 import net.minecraft.entity.EntityLivingBase;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.init.SoundEvents;
-import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.BlockRenderLayer;
 import net.minecraft.util.EnumFacing;
 import net.minecraft.util.EnumHand;
 import net.minecraft.util.IStringSerializable;
+import net.minecraft.util.NonNullList;
 import net.minecraft.util.SoundCategory;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.RayTraceResult;
@@ -43,12 +43,12 @@ import javax.annotation.Nullable;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
-import java.util.Random;
 
 /**
  * Репликатор клонов: два конструкционных блока, поставленные друг на друга, сами превращаются в эту машину.
  * Нижняя часть главная (в ней TileReplicator: владелец, позже клон, заряд и слоты), верхняя только передаёт подключения.
- * Если сломать любую часть, выпадает конструкционный блок, а вторая часть снова становится конструкционным блоком.
+ * Если сломать любую часть, вторая часть снова становится конструкционным блоком; выпадает конструкционный блок, если ломали
+ * ключом, иначе улучшенный корпус машины IC2, как у репликатора IC2 (getDrops).
  * Ключи не поворачивают машину: ключ IC2 снимает часть, по которой ударили (как слом), остальные ключи ничего не делают.
  */
 public class BlockReplicator extends Block implements IWrenchable {
@@ -197,9 +197,13 @@ public class BlockReplicator extends Block implements IWrenchable {
         return true;
     }
 
+    /**
+     * Слом части как у машин IC2 (Антон 08.11): ключом — конструкционный блок, киркой или взрывом — только улучшенный
+     * корпус машины IC2 (BlockReplicatorCasing.dropFor). Вторая часть в любом случае снова становится конструкционным блоком.
+     */
     @Override
-    public Item getItemDropped(IBlockState state, Random rand, int fortune) {
-        return Item.getItemFromBlock(MRContent.replicatorCasing);
+    public void getDrops(NonNullList<ItemStack> drops, IBlockAccess world, BlockPos pos, IBlockState state, int fortune) {
+        drops.add(BlockReplicatorCasing.dropFor(harvesters.get(), state));
     }
 
     @Override

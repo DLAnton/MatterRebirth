@@ -18,7 +18,7 @@ import java.util.List;
  * цветное стекло и вода, так их понимают и шейдеры) — стекло (текстура replicator_glass*) и, пока в баке есть UU,
  * жидкая материя в камере (картинка жидкости IC2 со своей анимацией; Антон 08.11: почти прозрачная, стекло не красится).
  * Прозрачность UU — в самой текстуре (UuChamberSprite): вершинную прозрачность Actinium не учитывает.
- * Вне отрисовки чанка (частицы слома, трещины) слоя нет — отдаётся вся модель.
+ * Вне отрисовки чанка (трещины слома) слоя нет — отдаются корпус и стекло, UU только если она есть в баке.
  */
 public class ReplicatorBakedModel extends BakedModelWrapper<IBakedModel> {
 
@@ -30,18 +30,16 @@ public class ReplicatorBakedModel extends BakedModelWrapper<IBakedModel> {
     public List<BakedQuad> getQuads(@Nullable IBlockState state, @Nullable EnumFacing side, long rand) {
         List<BakedQuad> all = originalModel.getQuads(state, side, rand);
         BlockRenderLayer layer = MinecraftForgeClient.getRenderLayer();
-        if (layer == null) {
-            return all;
-        }
-        boolean translucent = layer == BlockRenderLayer.TRANSLUCENT;
         boolean uu = state != null && state.getPropertyKeys().contains(BlockReplicator.UU) && state.getValue(BlockReplicator.UU);
+        boolean translucent = layer == BlockRenderLayer.TRANSLUCENT;
         List<BakedQuad> out = new ArrayList<>(all.size());
         for (BakedQuad quad : all) {
             if (isUu(quad)) {
-                if (translucent && uu) {
+                // UU — только пока она есть в баке, в том числе вне слоёв: иначе трещины слома ложились бы на пустую камеру
+                if (uu && (layer == null || translucent)) {
                     out.add(quad);
                 }
-            } else if (isGlass(quad) == translucent) {
+            } else if (layer == null || isGlass(quad) == translucent) {
                 out.add(quad);
             }
         }

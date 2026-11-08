@@ -186,6 +186,19 @@ public class TileReplicator extends TileEntity implements ITickable {
     /** Пузырьки в камере (только клиент): двигает ProxyClient.tickBubbles, рисует RenderReplicator. */
     private final List<float[]> bubbles = new ArrayList<>();
 
+    /*
+     * Рост клона на клиент (этап 5б): доля текущей стадии уходит клиентам ступенями по 1/GROWTH_STEPS, не чаще раза
+     * в GROWTH_SYNC тиков (смену стадии и прочее sync() шлёт сразу). Клиент плавно догоняет присланное (shownGrowth).
+     */
+    private static final int GROWTH_STEPS = 64;
+    private static final int GROWTH_SYNC = 20;
+    private int growthKey = -1;
+    private int growthWait;
+    // только клиент: показанная доля роста текущей стадии и стадия, к которой она относится
+    private int shownStage = -1;
+    private float shownGrowth;
+    private float prevShownGrowth;
+
     /** Билет загрузки чанка проверяется на первом тике машины на сервере. */
     private boolean chunkTicketChecked;
 
@@ -258,6 +271,7 @@ public class TileReplicator extends TileEntity implements ITickable {
         if (world.isRemote) {
             // пузырьки от площадки, пока идёт рост и в баке есть UU (идея Антона 08.11); всплывшие доживают и без роста
             MatterRebirth.proxy.tickBubbles(world, pos, bubbles, getLookLight() == BlockReplicator.Light.GROW && getLookUu());
+            tickShownGrowth();
             return;
         }
         if (!chunkTicketChecked) {
@@ -284,12 +298,52 @@ public class TileReplicator extends TileEntity implements ITickable {
         }
         alarm();
         updateLook();
+        updateGrowth();
         int signal = comparatorSignal();
         if (signal != lastSignal) {
             lastSignal = signal;
             world.updateComparatorOutputLevel(pos, MRContent.replicator);
             world.updateComparatorOutputLevel(pos.up(), MRContent.replicator);
         }
+    }
+
+    // --- рост клона на клиенте (этап 5б) ---
+
+    private int growthKey() {
+        return stage * (GROWTH_STEPS + 1) + (int) (getStageProgress() * GROWTH_STEPS);
+    }
+
+    /** Сервер: доля роста сменилась на ступень — разослать, но не чаще раза в GROWTH_SYNC тиков. */
+    private void updateGrowth() {
+        if (growthWait > 0) {
+            growthWait--;
+        }
+        if (growthWait == 0 && growthKey() != growthKey) {
+            sync(); // запоминает ступень и запускает ожидание
+        }
+    }
+
+    /** Клиент: показанная доля плавно догоняет присланную; при смене стадии — сразу (картинка та же: слой целиком). */
+    private void tickShownGrowth() {
+        float target = (float) getStageProgress();
+        prevShownGrowth = shownGrowth;
+        if (stage != shownStage) {
+            shownStage = stage;
+            shownGrowth = prevShownGrowth = target;
+        } else if (Math.abs(target - shownGrowth) < 0.002F) {
+            shownGrowth = target; // плавное приближение само не доходит до цели: без этого после отката до нуля
+            // у ступней оставалась тонкая полоска слоя (донца костей ног — проверка Антона 08.11)
+        } else {
+            shownGrowth += (target - shownGrowth) * 0.1F;
+        }
+    }
+
+    /** Доля роста текущей стадии для отрисовки клона, 0..1 (между тиками — плавно). */
+    public float getShownGrowth(float partialTicks) {
+        if (stage != shownStage) {
+            return (float) getStageProgress();
+        }
+        return prevShownGrowth + (shownGrowth - prevShownGrowth) * partialTicks;
     }
 
     // --- облик (этап 5а) ---
@@ -1149,6 +1203,8 @@ public class TileReplicator extends TileEntity implements ITickable {
 
     /** Сохранить и разослать клиентам (шапка и кнопки окна берут данные с клиентской копии машины). */
     private void sync() {
+        growthKey = growthKey();
+        growthWait = GROWTH_SYNC;
         markDirty();
         IBlockState state = world.getBlockState(pos);
         world.notifyBlockUpdate(pos, state, state, 3);

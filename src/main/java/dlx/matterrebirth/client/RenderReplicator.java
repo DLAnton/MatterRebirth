@@ -26,7 +26,7 @@ import org.lwjgl.opengl.GL11;
  * Экранчик всегда работает (Антон 08.11): лампочка UU — есть UU в баке, лампочка EU — есть энергия,
  * пять делений — выращенные стадии, полоса — здоровье готового клона.
  * Ореол — мягкое цветное свечение вокруг колец (свет блока в 1.12 бесцветный), выключается настройкой ringGlow.
- * Позже (5б) здесь же будет клон.
+ * Клон в камере (этап 5б) рисует CloneRenderer — первым, до пузырьков.
  */
 public class RenderReplicator extends TileEntitySpecialRenderer<TileReplicator> {
 
@@ -63,13 +63,13 @@ public class RenderReplicator extends TileEntitySpecialRenderer<TileReplicator> 
         EnumFacing facing = state.getValue(BlockReplicator.FACING);
         BlockReplicator.Light light = te.getLookLight();
 
-        drawBubbles(te, x, y, z, partialTicks);
-
         GlStateManager.pushMatrix();
         GlStateManager.translate(x + 0.5, y, z + 0.5);
         GlStateManager.rotate(180 - facing.getHorizontalAngle(), 0, 1, 0); // как поворот модели в blockstate
         GlStateManager.translate(-0.5, 0, -0.5);
         GlStateManager.scale(1 / 16.0, 1 / 16.0, 1 / 16.0);
+
+        CloneRenderer.render(this, te, partialTicks); // клон первым: пузырьки за ним прячутся, стекло и UU ложатся поверх
 
         float lastX = OpenGlHelper.lastBrightnessX, lastY = OpenGlHelper.lastBrightnessY;
         OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, 240F, 240F); // огни светятся сами
@@ -87,6 +87,13 @@ public class RenderReplicator extends TileEntitySpecialRenderer<TileReplicator> 
         GlStateManager.enableTexture2D();
         OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, lastX, lastY);
         GlStateManager.popMatrix();
+
+        drawBubbles(te, x, y, z, partialTicks);
+    }
+
+    /** Привязать текстуру (для CloneRenderer: bindTexture защищён). */
+    void bind(ResourceLocation texture) {
+        bindTexture(texture);
     }
 
     // --- пузырьки ---
