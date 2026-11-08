@@ -37,6 +37,9 @@ public class ContainerReplicator extends Container {
     private int uuShort;
     private boolean growth;
     private int flesh;
+    private int health;
+    private int healthMille;
+    private int uuDays;
     // последние отправленные значения на сервере
     private int sentEnergy = -1;
     private int sentCapacity = -1;
@@ -50,6 +53,9 @@ public class ContainerReplicator extends Container {
     private int sentUuShort = -1;
     private int sentGrowth = -1;
     private int sentFlesh = -1;
+    private int sentHealth = -1;
+    private int sentHealthMille = -1;
+    private int sentUuDays = -1;
 
     public ContainerReplicator(InventoryPlayer playerInv, TileReplicator tile) {
         this.tile = tile;
@@ -110,6 +116,10 @@ public class ContainerReplicator extends Container {
         int uu = Math.min(Short.MAX_VALUE, tile.getUuShort());
         int g = tile.hasGrowth() ? 1 : 0;
         int fl = tile.resetFlesh(); // для подтверждения корзины: сколько плоти останется
+        // поддержание (4в): здоровье числом и долей для шкалы, на сколько дней хватит UU (до 16001, в short помещается)
+        int hp = tile.getHealthShown();
+        int hpMille = (int) Math.round(tile.getHealthFraction() * 1000);
+        int days = Math.min(Short.MAX_VALUE, tile.getUuDays());
         for (IContainerListener l : listeners) {
             if (e != sentEnergy) {
                 l.sendWindowProperty(this, 0, e & 0x7FFF);
@@ -149,6 +159,15 @@ public class ContainerReplicator extends Container {
             if (fl != sentFlesh) {
                 l.sendWindowProperty(this, 13, fl);
             }
+            if (hp != sentHealth) {
+                l.sendWindowProperty(this, 14, hp);
+            }
+            if (hpMille != sentHealthMille) {
+                l.sendWindowProperty(this, 15, hpMille);
+            }
+            if (days != sentUuDays) {
+                l.sendWindowProperty(this, 16, days);
+            }
         }
         sentEnergy = e;
         sentCapacity = c;
@@ -162,6 +181,9 @@ public class ContainerReplicator extends Container {
         sentUuShort = uu;
         sentGrowth = g;
         sentFlesh = fl;
+        sentHealth = hp;
+        sentHealthMille = hpMille;
+        sentUuDays = days;
     }
 
     @Override
@@ -182,6 +204,9 @@ public class ContainerReplicator extends Container {
             case 11: uuShort = data; break;
             case 12: growth = data != 0; break;
             case 13: flesh = data; break;
+            case 14: health = data; break;
+            case 15: healthMille = data; break;
+            case 16: uuDays = data; break;
             default: break;
         }
     }
@@ -237,6 +262,21 @@ public class ContainerReplicator extends Container {
     /** Сколько гнилой плоти даст корзина (на клиенте). */
     public int getResetFlesh() {
         return flesh;
+    }
+
+    /** Здоровье клона, целое 0..20 (на клиенте). */
+    public int getHealth() {
+        return health;
+    }
+
+    /** Здоровье клона, 0..1, для шкалы (на клиенте). */
+    public float getHealthFraction() {
+        return healthMille / 1000f;
+    }
+
+    /** На сколько игровых дней хватит UU клону (на клиенте). */
+    public int getUuDays() {
+        return uuDays;
     }
 
     /** Сколько UU в баке, mB (на клиенте). */

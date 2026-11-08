@@ -75,6 +75,7 @@ public class GuiReplicator extends GuiContainer {
     private static final int[] STAGE_COLORS = {0xE2DABE, 0xEBCD46, 0xCD3737, 0xB9555F, 0xDEAA87};
     private static final int BAR_FRAME = 0x3C3C3C;
     private static final int TITLE = 0xC8C8C8, DONE = 0x5ADC6E, DIM = 0x505050, PAUSE_GREY = 0x969696, RED = 0xDC4646;
+    private static final int HEALTH_RED = 0xC82828; // шкала здоровья на экране «Поддержание» (макет 07.11)
     private static final String[] STAGE_KEYS = {"skeleton", "nerves", "vessels", "muscles", "skin"};
 
     /*
@@ -273,6 +274,11 @@ public class GuiReplicator extends GuiContainer {
             boolean repeat = container.getTile().isRepeat();
             boolean hover = !confirming && buttonAt(REPEAT_X, mx, my); // под окном подтверждения без подсветки
             drawButton(REPEAT_X, repeat ? 216 : hover ? 204 : 180, repeat ? 4 : 2, hover ? 20 : 12);
+        } else if (container.getTile().isRepeat()) {
+            // тёмная кнопка при включённом «растить заново» — приглушённо-зелёная: видно, что режим включён (Антон 08.11)
+            GlStateManager.color(0.45F, 0.45F, 0.45F, 1F);
+            drawButton(REPEAT_X, 216, 4, 12);
+            GlStateManager.color(1, 1, 1, 1);
         } else {
             drawButton(REPEAT_X, 180, 2, 44);
         }
@@ -304,6 +310,16 @@ public class GuiReplicator extends GuiContainer {
     private void drawStageBar() {
         int x = guiLeft + BAR_X, top = guiTop + BAR_Y;
         drawRect(x, top, x + 6, top + BAR_H, 0xFF000000 | BAR_FRAME);
+        if (ready()) {
+            // «Поддержание»: та же шкала становится красной шкалой здоровья, одним отрезком снизу вверх
+            int inner = BAR_H - 2;
+            drawRect(x + 1, top + 1, x + 5, top + BAR_H - 1, 0xFF000000);
+            int f = Math.round(inner * Math.max(0, Math.min(1, container.getHealthFraction())));
+            if (f > 0) {
+                drawRect(x + 1, top + BAR_H - 1 - f, x + 5, top + BAR_H - 1, 0xFF000000 | HEALTH_RED);
+            }
+            return;
+        }
         int total = 0;
         for (int t : TileReplicator.STAGE_TICKS) {
             total += t;
@@ -325,7 +341,9 @@ public class GuiReplicator extends GuiContainer {
     /** Пунктирный каркас клона на месте модели: тонкие линии в пиксель экрана, пунктир 4 через 4. */
     private void drawGhost() {
         float x0 = guiLeft + AREA_CX - GHOST_W / 2, y0 = guiTop + AREA_BOTTOM - GHOST_H;
-        float c = 85 / 255f;
+        // клон погиб — каркас красный (особая иконка и вид машины — отдельное обсуждение, Антон 08.11)
+        boolean dead = container.getStatus() == TileReplicator.Status.DEAD;
+        float c = 85 / 255f, r = dead ? 0.6f : c, g = dead ? 0.15f : c, b = dead ? 0.15f : c;
         Tessellator tess = Tessellator.getInstance();
         BufferBuilder buf = tess.getBuffer();
         GlStateManager.disableTexture2D();
@@ -343,8 +361,8 @@ public class GuiReplicator extends GuiContainer {
             buf.begin(GL11.GL_LINES, DefaultVertexFormats.POSITION_COLOR);
             for (int k = 0; k < 4; k++) {
                 int n = (k + 1) % 4;
-                buf.pos(x0 + f[k * 2] + 0.5f, y0 + f[k * 2 + 1] + 0.5f, zLevel).color(c, c, c, 1f).endVertex();
-                buf.pos(x0 + f[n * 2] + 0.5f, y0 + f[n * 2 + 1] + 0.5f, zLevel).color(c, c, c, 1f).endVertex();
+                buf.pos(x0 + f[k * 2] + 0.5f, y0 + f[k * 2 + 1] + 0.5f, zLevel).color(r, g, b, 1f).endVertex();
+                buf.pos(x0 + f[n * 2] + 0.5f, y0 + f[n * 2 + 1] + 0.5f, zLevel).color(r, g, b, 1f).endVertex();
             }
             tess.draw();
             GL11.glDisable(GL11.GL_LINE_STIPPLE);
@@ -380,6 +398,11 @@ public class GuiReplicator extends GuiContainer {
             default:
                 return YELLOW;
         }
+    }
+
+    /** Клон готов: экран «Поддержание». */
+    private boolean ready() {
+        return container.getStage() >= TileReplicator.STAGES;
     }
 
     private boolean hasPattern() {
@@ -443,7 +466,22 @@ public class GuiReplicator extends GuiContainer {
 
     /** Подсказка к строке состояния: сколько не хватает UU или энергии, что значит откат. */
     private String statusTip() {
+        if (ready()) {
+            // поддержание (4в): жизнь стоит 1 mB UU в игровой день и 16 EU/t; без них здоровье падает на 1 в минуту
+            long hold = Math.round(TileReplicator.HOLD_EU);
+            switch (container.getStatus()) {
+                case NEED_UU:
+                    return I18n.format("gui.matterrebirth.replicator.upkeep_no_uu_tip");
+                case NO_POWER:
+                    return I18n.format("gui.matterrebirth.replicator.upkeep_no_power_tip", hold);
+                default:
+                    return I18n.format(container.getHealth() < TileReplicator.MAX_HEALTH
+                            ? "gui.matterrebirth.replicator.upkeep_heal_tip" : "gui.matterrebirth.replicator.upkeep_tip", hold);
+            }
+        }
         switch (container.getStatus()) {
+            case DEAD:
+                return I18n.format("gui.matterrebirth.replicator.dead_tip");
             case NEED_UU:
                 return I18n.format("gui.matterrebirth.replicator.need_uu_tip", container.getUuShort());
             case LOW_POWER:
@@ -663,6 +701,35 @@ public class GuiReplicator extends GuiContainer {
         String pattern = name != null ? name : I18n.format("gui.matterrebirth.replicator.no_pattern");
         pattern = fontRenderer.trimStringToWidth(pattern, PAT_R_X - PAT_L_X - 8); // длинный ник не налезает на стрелки
         fontRenderer.drawString(pattern, SX + (SW - fontRenderer.getStringWidth(pattern)) / 2, SY + 2, name != null ? WHITE : GREY);
+        if (ready()) {
+            drawUpkeepText();
+        } else {
+            drawGrowthText();
+        }
+        drawStatusLine();
+    }
+
+    /**
+     * «Поддержание» (макет 07.11): заголовок, «Здоровье» и N/20, «UU на» и N дн. Пока клон теряет здоровье, число
+     * красное; UU кончилась — дни красные.
+     */
+    private void drawUpkeepText() {
+        int maxW = SX + SW - 2 - TEXT_X;
+        fontRenderer.drawString(fontRenderer.trimStringToWidth(I18n.format("gui.matterrebirth.replicator.title_upkeep"), maxW),
+                TEXT_X, TITLE_Y, TITLE);
+        TileReplicator.Status st = container.getStatus();
+        boolean falling = st == TileReplicator.Status.NEED_UU || st == TileReplicator.Status.NO_POWER;
+        fontRenderer.drawString(fontRenderer.trimStringToWidth(I18n.format("gui.matterrebirth.replicator.health"), maxW),
+                TEXT_X, LIST_Y, GREY);
+        fontRenderer.drawString(container.getHealth() + "/" + TileReplicator.MAX_HEALTH, TEXT_X, LIST_Y + LIST_STEP,
+                falling ? RED : WHITE);
+        fontRenderer.drawString(fontRenderer.trimStringToWidth(I18n.format("gui.matterrebirth.replicator.uu_for"), maxW),
+                TEXT_X, LIST_Y + LIST_STEP * 2 + 5, GREY);
+        String days = fontRenderer.trimStringToWidth(I18n.format("gui.matterrebirth.replicator.uu_days", container.getUuDays()), maxW);
+        fontRenderer.drawString(days, TEXT_X, LIST_Y + LIST_STEP * 3 + 5, container.getUuDays() > 0 ? WHITE : RED);
+    }
+
+    private void drawGrowthText() {
         fontRenderer.drawString(I18n.format("gui.matterrebirth.replicator.title_growth"), TEXT_X, TITLE_Y, TITLE);
         // список стадий сверху вниз (кожа сверху, скелет снизу, как на шкале): готовые зелёные, текущая жёлтая с процентом
         int stage = container.getStage();
@@ -712,6 +779,9 @@ public class GuiReplicator extends GuiContainer {
                 fontRenderer.drawString(fontRenderer.trimStringToWidth(stageName, maxW), nameX, y, color);
             }
         }
+    }
+
+    private void drawStatusLine() {
         String status;
         int color;
         switch (container.getStatus()) {
@@ -751,6 +821,10 @@ public class GuiReplicator extends GuiContainer {
             case READY:
                 status = I18n.format("gui.matterrebirth.replicator.ready");
                 color = DONE;
+                break;
+            case DEAD:
+                status = I18n.format("gui.matterrebirth.replicator.dead");
+                color = RED;
                 break;
             default:
                 status = I18n.format("gui.matterrebirth.replicator.idle");

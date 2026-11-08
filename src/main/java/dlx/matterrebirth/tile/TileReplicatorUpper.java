@@ -78,7 +78,7 @@ public class TileReplicatorUpper extends TileEntity implements ITickable {
             }
             return capability == CapabilityItemHandler.ITEM_HANDLER_CAPABILITY
                     ? CapabilityItemHandler.ITEM_HANDLER_CAPABILITY.cast(lower.getAutomation())
-                    : CapabilityFluidHandler.FLUID_HANDLER_CAPABILITY.cast(lower.getTank());
+                    : CapabilityFluidHandler.FLUID_HANDLER_CAPABILITY.cast(lower.getPipeTank());
         }
         return super.getCapability(capability, facing);
     }

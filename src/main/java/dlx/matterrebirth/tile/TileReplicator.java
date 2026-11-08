@@ -32,6 +32,8 @@ import net.minecraftforge.fluids.FluidStack;
 import net.minecraftforge.fluids.FluidTank;
 import net.minecraftforge.fluids.FluidUtil;
 import net.minecraftforge.fluids.capability.CapabilityFluidHandler;
+import net.minecraftforge.fluids.capability.IFluidHandler;
+import net.minecraftforge.fluids.capability.IFluidTankProperties;
 import net.minecraftforge.items.CapabilityItemHandler;
 import net.minecraftforge.items.IItemHandler;
 import net.minecraftforge.items.ItemHandlerHelper;
@@ -53,7 +55,8 @@ import java.util.UUID;
  * С выталкивателем IC2 машина сама выталкивает пустые капсулы и плоть в соседние хранилища через порты.
  * Рост клона (этап 4б, решения Антона 07.11): пять стадий снизу вверх; стадия стартует, только когда в баке есть
  * вся её UU, и забирает её сразу; без энергии выращенное откатывается (подробности у tickGrowth).
- * Поддержание готового клона — этап 4в.
+ * Поддержание готового клона (этап 4в, решения Антона 08.11): жизнь стоит 1 mB UU в игровой день и 16 EU/t; без UU
+ * или без энергии клон теряет здоровье, с питанием восстанавливает (подробности у tickUpkeep). Гибель даёт 5 плоти.
  */
 public class TileReplicator extends TileEntity implements ITickable {
 
@@ -110,7 +113,24 @@ public class TileReplicator extends TileEntity implements ITickable {
 
     /** Что машина делает сейчас; строка состояния окна. Порядок значений передаётся в окно числом: не менять. */
     // порядок важен: окно получает номер (ordinal); новые значения только в конец
-    public enum Status { IDLE, GROWING, NEED_UU, PAUSED, LOW_POWER, ROLLBACK, READY, NO_POWER, CHARGING, OVERLOAD }
+    public enum Status { IDLE, GROWING, NEED_UU, PAUSED, LOW_POWER, ROLLBACK, READY, NO_POWER, CHARGING, OVERLOAD, DEAD }
+
+    // --- поддержание готового клона (этап 4в, решения Антона 08.11) ---
+
+    /** Здоровье клона, как у игрока: 20 единиц (10 сердец). */
+    public static final int MAX_HEALTH = 20;
+    /** Изменение здоровья за тик: 1 единица в минуту — с полного до гибели без питания 20 минут, один игровой день. */
+    public static final double HEALTH_PER_TICK = 1.0 / 1200;
+    /** Жизнь: 1 mB UU в игровой день (24000 тиков). */
+    public static final double LIFE_UU_PER_TICK = 1.0 / 24000;
+    /** У живого клона трубам не отдаются последние 10 mB (10 игровых дней жизни). */
+    public static final int PIPE_KEEP_MB = 10;
+    /** Гибель клона: гнилая плоть. */
+    public static final int DEATH_FLESH = 5;
+    /** Тревожный сигнал, пока здоровье падает: раз в 3 секунды. */
+    private static final int ALARM_INTERVAL = 60;
+    /** Номер события блока «тревога» (сервер → клиенты рядом). */
+    public static final int EVENT_ALARM = 1;
 
     /** Текущая стадия 0..4; STAGES — клон готов. Стадии ниже текущей выращены целиком. */
     private int stage;
@@ -127,6 +147,20 @@ public class TileReplicator extends TileEntity implements ITickable {
     private Status status = Status.IDLE;
     private int uuShort;
     private int secondsLeft;
+
+    /** Здоровье готового клона, 0..MAX_HEALTH. */
+    private double health;
+    /**
+     * UU, уже взятая из бака на жизнь клона, mB (0..1). Клон берёт 1 mB вперёд и расходует его за игровой день;
+     * кончился — берёт следующий; в баке пусто — голодает.
+     */
+    private double lifeUu;
+    /** Клон погиб, «растить заново» выключено: экран пишет «Клон погиб», пока плоть не забрали или не начат новый рост. */
+    private boolean dead;
+    // не сохраняются: здоровье падает (для тревоги), счётчик тревоги, последний сигнал компаратора
+    private boolean healthFalling;
+    private int alarmTimer;
+    private int lastSignal = -1;
 
     /** Растить заново после каждого воскрешения (иначе один раз). */
     private boolean repeat;
@@ -153,6 +187,44 @@ public class TileReplicator extends TileEntity implements ITickable {
 
     public FluidTank getTank() {
         return tank;
+    }
+
+    /** Бак для труб через порты: у живого клона последние PIPE_KEEP_MB mB не откачиваются (Антон, план 4в). */
+    public IFluidHandler getPipeTank() {
+        return pipeTank;
+    }
+
+    private final IFluidHandler pipeTank = new IFluidHandler() {
+        @Override
+        public IFluidTankProperties[] getTankProperties() {
+            return tank.getTankProperties();
+        }
+
+        @Override
+        public int fill(FluidStack resource, boolean doFill) {
+            return tank.fill(resource, doFill);
+        }
+
+        @Override
+        @Nullable
+        public FluidStack drain(FluidStack resource, boolean doDrain) {
+            int max = pipeDrainable();
+            if (resource == null || max <= 0) {
+                return null;
+            }
+            return tank.drain(new FluidStack(resource, Math.min(resource.amount, max)), doDrain);
+        }
+
+        @Override
+        @Nullable
+        public FluidStack drain(int maxDrain, boolean doDrain) {
+            int max = Math.min(maxDrain, pipeDrainable());
+            return max > 0 ? tank.drain(max, doDrain) : null;
+        }
+    };
+
+    private int pipeDrainable() {
+        return Math.max(0, tank.getFluidAmount() - (stage >= STAGES ? PIPE_KEEP_MB : 0));
     }
 
     public IItemHandler getAutomation() {
@@ -186,6 +258,63 @@ public class TileReplicator extends TileEntity implements ITickable {
             topUpFromReserve();
         }
         eject();
+        // «Клон погиб» держится, пока гнилую плоть не забрали из слота (Антон 08.11)
+        if (dead && inventory.getStackInSlot(ReplicatorInventory.FLESH).isEmpty()) {
+            dead = false;
+            sync();
+        }
+        alarm();
+        int signal = comparatorSignal();
+        if (signal != lastSignal) {
+            lastSignal = signal;
+            world.updateComparatorOutputLevel(pos, MRContent.replicator);
+            world.updateComparatorOutputLevel(pos.up(), MRContent.replicator);
+        }
+    }
+
+    /** Пока здоровье клона падает, раз в 3 секунды тревожный сигнал IC2 у машины (первый — сразу). */
+    private void alarm() {
+        if (!healthFalling || stage < STAGES) {
+            alarmTimer = ALARM_INTERVAL;
+            return;
+        }
+        if (++alarmTimer >= ALARM_INTERVAL) {
+            alarmTimer = 0;
+            world.addBlockEvent(pos, MRContent.replicator, EVENT_ALARM, 0);
+        }
+    }
+
+    /**
+     * Событие блока на клиенте: тревога звучит через звуковую систему IC2 (её громкость и дальность из настроек IC2),
+     * звуком остановки машин IC2. На сервере событие только подтверждается, чтобы ушло клиентам рядом.
+     */
+    @Override
+    public boolean receiveClientEvent(int id, int type) {
+        if (id != EVENT_ALARM) {
+            return super.receiveClientEvent(id, type);
+        }
+        if (world != null && world.isRemote) {
+            ic2.core.IC2.audioManager.playOnce(this, ic2.core.audio.PositionSpec.Center, "Machines/InterruptOne.ogg", true,
+                    ic2.core.IC2.audioManager.getDefaultVolume());
+        }
+        return true;
+    }
+
+    /**
+     * Сигнал компаратора (Антон 08.11): 0 — камера пуста; 1–5 — номер текущей стадии роста; живой клон — 15..10
+     * по здоровью (20 — 15, каждые 4 единицы минус 1, 1–3 — 10); 9 — клон погиб.
+     */
+    public int comparatorSignal() {
+        if (dead) {
+            return 9;
+        }
+        if (pattern.isEmpty()) {
+            return 0;
+        }
+        if (stage >= STAGES) {
+            return 10 + Math.min(5, getHealthShown() / 4);
+        }
+        return hasGrowth() ? stage + 1 : 0;
     }
 
     // --- рост ---
@@ -213,8 +342,12 @@ public class TileReplicator extends TileEntity implements ITickable {
         }
         if (stage >= STAGES) {
             charging = false; // клон готов: «растить заново» начнёт с обычного правила половины
-            status = Status.READY;
-            holdFrom(in, true); // в 4б готовый клон просто держится; поддержание и его цена — 4в
+            tickUpkeep(in);
+            return;
+        }
+        if (dead) {
+            storeInput(in); // камера пуста, шаблон ждёт «Начать рост»
+            status = Status.DEAD;
             return;
         }
         int oc = overclockers();
@@ -293,6 +426,81 @@ public class TileReplicator extends TileEntity implements ITickable {
         holdFrom(in, growth);
     }
 
+    /**
+     * Один тик жизни готового клона (Антон 08.11). Энергия 16 EU/t: из пришедшего, затем из запаса (кристалл уже долил).
+     * UU 1 mB на игровой день, берётся вперёд. Есть и то и другое — здоровье растёт на 1 в минуту до 20; нет UU или
+     * энергии — падает на 1 в минуту (одновременно обоих — так же), звучит тревога; дошло до нуля — клон погибает.
+     * Без энергии UU не тратится.
+     */
+    private void tickUpkeep(double in) {
+        double stored = Math.min(sink.getCapacity(), sink.getEnergyStored() + in);
+        boolean fed = false;
+        if (stored >= HOLD_EU - EPS) {
+            holdFrom(in, true);
+            if (lifeUu < LIFE_UU_PER_TICK - EPS && tank.getFluidAmount() >= 1) {
+                tank.drain(1, true);
+                lifeUu += 1;
+            }
+            if (lifeUu >= LIFE_UU_PER_TICK - EPS) {
+                lifeUu = Math.max(0, lifeUu - LIFE_UU_PER_TICK);
+                fed = true;
+            }
+            status = fed ? Status.READY : Status.NEED_UU;
+            uuShort = fed ? 0 : 1;
+        } else {
+            // остаток меньше удержания ни на что не хватает: уходит на попытку, экран гаснет (как при откате роста)
+            storeInput(in);
+            use(sink.getEnergyStored());
+            status = Status.NO_POWER;
+        }
+        healthFalling = !fed;
+        health = fed ? Math.min(MAX_HEALTH, health + HEALTH_PER_TICK) : Math.max(0, health - HEALTH_PER_TICK);
+        if (health <= EPS) {
+            die();
+            return;
+        }
+        markDirty();
+    }
+
+    /**
+     * Гибель клона: 5 гнилой плоти, камера пуста, шаблон остаётся. С «растить заново» рост сразу начинается сначала,
+     * без него — «Клон погиб» и пауза, пока игрок не начнёт рост сам (Антон 08.11).
+     */
+    private void die() {
+        giveFlesh(DEATH_FLESH);
+        stage = 0;
+        progress = 0;
+        paid = 0;
+        rollingFull = false;
+        charging = false;
+        health = 0;
+        lifeUu = 0;
+        healthFalling = false;
+        paused = !repeat;
+        dead = !repeat && !inventory.getStackInSlot(ReplicatorInventory.FLESH).isEmpty();
+        status = dead ? Status.DEAD : Status.IDLE;
+        sync();
+    }
+
+    /** Здоровье клона для экрана и компаратора: целое, вверх (0 только у погибшего). */
+    public int getHealthShown() {
+        return stage >= STAGES ? Math.max(0, Math.min(MAX_HEALTH, (int) Math.ceil(health - EPS))) : 0;
+    }
+
+    /** Здоровье, 0..1 (шкала слева на экране «Поддержание»). */
+    public double getHealthFraction() {
+        return stage >= STAGES ? health / MAX_HEALTH : 0;
+    }
+
+    /** На сколько игровых дней хватит UU в баке (и уже взятой) клону; начатый день считается целым, 0 — UU нет совсем. */
+    public int getUuDays() {
+        return stage >= STAGES ? (int) Math.ceil(tank.getFluidAmount() + lifeUu - EPS) : 0;
+    }
+
+    public boolean isDead() {
+        return dead;
+    }
+
     /** Запас дошёл до половины при нехватке питания: рост из запаса запрещён, пока запас не станет полным. */
     private boolean charging;
 
@@ -341,6 +549,8 @@ public class TileReplicator extends TileEntity implements ITickable {
             rollingFull = false;
             if (stage >= STAGES) {
                 status = Status.READY;
+                health = MAX_HEALTH; // готовый клон здоров; первый 1 mB на жизнь берётся следующим тиком
+                lifeUu = 0;
             }
             sync(); // новая стадия на клиент (окно, позже модель)
         } else {
@@ -671,6 +881,9 @@ public class TileReplicator extends TileEntity implements ITickable {
         } else if (id == BUTTON_PAUSE) {
             if (canPause()) {
                 paused = !paused;
+                if (!paused) {
+                    dead = false; // начат новый рост
+                }
                 sync();
             }
         } else if (id == BUTTON_REPEAT) {
@@ -729,6 +942,9 @@ public class TileReplicator extends TileEntity implements ITickable {
         rollingFull = false;
         paused = false;
         charging = false;
+        health = 0;
+        lifeUu = 0;
+        dead = false;
         pattern = ItemStack.EMPTY;
         sync();
     }
@@ -758,6 +974,7 @@ public class TileReplicator extends TileEntity implements ITickable {
         ItemStack chosen = ItemBloodSample.cleanCopy(list.get(next));
         if (!ItemStack.areItemStacksEqual(chosen, pattern)) {
             pattern = chosen;
+            dead = false;
             // выбранный шаблон ждёт на паузе: стрелками можно спокойно долистать до нужного, рост (и списание UU)
             // начинается кнопкой «начать рост» (замечание Антона 07.11: иначе стадия стартовала сразу и стрелки блокировались)
             paused = true;
@@ -838,7 +1055,7 @@ public class TileReplicator extends TileEntity implements ITickable {
             return isPort(facing) ? CapabilityItemHandler.ITEM_HANDLER_CAPABILITY.cast(automation) : null;
         }
         if (capability == CapabilityFluidHandler.FLUID_HANDLER_CAPABILITY) {
-            return isPort(facing) ? CapabilityFluidHandler.FLUID_HANDLER_CAPABILITY.cast(tank) : null;
+            return isPort(facing) ? CapabilityFluidHandler.FLUID_HANDLER_CAPABILITY.cast(pipeTank) : null;
         }
         return super.getCapability(capability, facing);
     }
@@ -983,6 +1200,10 @@ public class TileReplicator extends TileEntity implements ITickable {
         paid = stage < STAGES ? Math.max(0, Math.min(1, tag.getDouble("Paid"))) : 0;
         rollingFull = tag.getBoolean("RollingFull");
         charging = tag.getBoolean("Charging");
+        // у готового клона без записи здоровья (мир до 4в) — полное здоровье
+        health = stage >= STAGES ? (tag.hasKey("Health") ? Math.max(0, Math.min(MAX_HEALTH, tag.getDouble("Health"))) : MAX_HEALTH) : 0;
+        lifeUu = Math.max(0, Math.min(1, tag.getDouble("LifeUu")));
+        dead = tag.getBoolean("Dead");
         repeat = tag.getBoolean("Repeat");
         paused = tag.getBoolean("Paused");
         pattern = tag.hasKey("Pattern") ? new ItemStack(tag.getCompoundTag("Pattern")) : ItemStack.EMPTY;
@@ -1020,6 +1241,9 @@ public class TileReplicator extends TileEntity implements ITickable {
         tag.setDouble("Paid", paid);
         tag.setBoolean("RollingFull", rollingFull);
         tag.setBoolean("Charging", charging);
+        tag.setDouble("Health", health);
+        tag.setDouble("LifeUu", lifeUu);
+        tag.setBoolean("Dead", dead);
         tag.setBoolean("Repeat", repeat);
         tag.setBoolean("Paused", paused);
         if (!pattern.isEmpty()) {

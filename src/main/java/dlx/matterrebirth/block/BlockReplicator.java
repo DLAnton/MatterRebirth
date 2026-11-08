@@ -215,6 +215,25 @@ public class BlockReplicator extends Block implements IWrenchable {
         return Collections.singletonList(new ItemStack(MRContent.replicatorCasing));
     }
 
+    /** Сигнал компаратора с любой из двух частей: по состоянию клона (TileReplicator.comparatorSignal, Антон 08.11). */
+    @Override
+    public boolean hasComparatorInputOverride(IBlockState state) {
+        return true;
+    }
+
+    @Override
+    public int getComparatorInputOverride(IBlockState state, World world, BlockPos pos) {
+        TileEntity te = world.getTileEntity(lowerPos(state, pos));
+        return te instanceof TileReplicator ? ((TileReplicator) te).comparatorSignal() : 0;
+    }
+
+    /** События блока (тревога клона) передаются машине: на клиенте она играет звук. */
+    @Override
+    public boolean eventReceived(IBlockState state, World world, BlockPos pos, int id, int param) {
+        TileEntity te = world.getTileEntity(pos);
+        return te != null && te.receiveClientEvent(id, param);
+    }
+
     @Override
     public boolean hasTileEntity(IBlockState state) {
         return true;
