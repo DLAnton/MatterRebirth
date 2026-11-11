@@ -40,6 +40,11 @@ public class ContainerReplicator extends Container {
     private int health;
     private int healthMille;
     private int uuDays;
+    // баланс сервера (5в+): окно показывает числа сервера, а не настройки игрока
+    private int growEu;
+    private int holdEu;
+    private int lifeEu;
+    private int lifeUuPerDay;
     // последние отправленные значения на сервере
     private int sentEnergy = -1;
     private int sentCapacity = -1;
@@ -55,6 +60,10 @@ public class ContainerReplicator extends Container {
     private int sentFlesh = -1;
     private int sentHealth = -1;
     private int sentHealthMille = -1;
+    private int sentGrowEu = -1;
+    private int sentHoldEu = -1;
+    private int sentLifeEu = -1;
+    private int sentLifeUuPerDay = -1;
     private int sentUuDays = Integer.MIN_VALUE; // -1 — законное значение («меньше дня»), поэтому другой «ещё не слали»
 
     public ContainerReplicator(InventoryPlayer playerInv, TileReplicator tile) {
@@ -108,7 +117,7 @@ public class ContainerReplicator extends Container {
         int t = tile.getSink().getSinkTier();
         int f = tile.getTank().getFluidAmount(); // до 16000, в short помещается целиком
         int p = tile.isPowered() ? 1 : 0; // заряд в запасе или в кристалле резерва
-        // рост: стадия, прогресс стадии в тысячных, состояние, секунды до конца стадии (до 360), нехватка UU (до 600 mB)
+        // рост: стадия, прогресс стадии в тысячных, состояние, секунды до конца стадии (до 2160 при 120 мин на клона), нехватка UU (до 4800 mB)
         int st = tile.getStage();
         int mille = (int) Math.floor(tile.getStageProgress() * 1000);
         int stat = tile.getStatus().ordinal();
@@ -120,6 +129,11 @@ public class ContainerReplicator extends Container {
         int hp = tile.getHealthShown();
         int hpMille = (int) Math.round(tile.getHealthFraction() * 1000);
         int days = Math.min(Short.MAX_VALUE, tile.getUuDays());
+        // баланс (5в+): не больше 2048, в short помещается
+        int bGrow = (int) Math.round(TileReplicator.getGrowEuBase());
+        int bHold = (int) Math.round(TileReplicator.getHoldEu());
+        int bLife = (int) Math.round(TileReplicator.getLifeEu());
+        int bPerDay = TileReplicator.getLifeUuPerDay();
         for (IContainerListener l : listeners) {
             if (e != sentEnergy) {
                 l.sendWindowProperty(this, 0, e & 0x7FFF);
@@ -168,6 +182,18 @@ public class ContainerReplicator extends Container {
             if (days != sentUuDays) {
                 l.sendWindowProperty(this, 16, days);
             }
+            if (bGrow != sentGrowEu) {
+                l.sendWindowProperty(this, 17, bGrow);
+            }
+            if (bHold != sentHoldEu) {
+                l.sendWindowProperty(this, 18, bHold);
+            }
+            if (bLife != sentLifeEu) {
+                l.sendWindowProperty(this, 19, bLife);
+            }
+            if (bPerDay != sentLifeUuPerDay) {
+                l.sendWindowProperty(this, 20, bPerDay);
+            }
         }
         sentEnergy = e;
         sentCapacity = c;
@@ -184,6 +210,10 @@ public class ContainerReplicator extends Container {
         sentHealth = hp;
         sentHealthMille = hpMille;
         sentUuDays = days;
+        sentGrowEu = bGrow;
+        sentHoldEu = bHold;
+        sentLifeEu = bLife;
+        sentLifeUuPerDay = bPerDay;
     }
 
     @Override
@@ -207,8 +237,32 @@ public class ContainerReplicator extends Container {
             case 14: health = data; break;
             case 15: healthMille = data; break;
             case 16: uuDays = data; break;
+            case 17: growEu = data; break;
+            case 18: holdEu = data; break;
+            case 19: lifeEu = data; break;
+            case 20: lifeUuPerDay = data; break;
             default: break;
         }
+    }
+
+    /** Рост, EU/t без ускорителей — число сервера (на клиенте). */
+    public int getGrowEu() {
+        return growEu;
+    }
+
+    /** Удержание слоёв, EU/t — число сервера. */
+    public int getHoldEu() {
+        return holdEu;
+    }
+
+    /** Жизнь клона, EU/t — число сервера. */
+    public int getLifeEu() {
+        return lifeEu;
+    }
+
+    /** Жизнь клона, mB UU в игровой день — число сервера. */
+    public int getLifeUuPerDay() {
+        return lifeUuPerDay;
     }
 
     public int getEnergy() {

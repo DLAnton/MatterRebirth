@@ -103,16 +103,26 @@ public class TileReplicator extends TileEntity implements ITickable {
     // --- рост: стадии снизу вверх — скелет, нервы, сосуды, мышцы, кожа (числа стартовые, решения Антона 07.11) ---
 
     public static final int STAGES = 5;
-    /** UU на стадию, mB (вдвое дороже первых чисел — Антон 09.11, шаг 5в: клон стоит 2 ведра). */
-    public static final int[] STAGE_UU = {400, 500, 300, 600, 200};
-    /** Время стадии без ускорителей, тики (4, 5, 3, 6 и 2 минуты). */
-    public static final int[] STAGE_TICKS = {4800, 6000, 3600, 7200, 2400};
+    /*
+     * Баланс (настройки 5в+, Антон 11.11): числа берутся из раздела «balance» конфига при запуске мира (loadBalance),
+     * так что новые значения действуют после перезахода в мир; на сервере — числа сервера, окно получает их от него.
+     * Цена UU и время роста клона делятся по стадиям в постоянной пропорции STAGE_SHARE: шкала стадий в окне
+     * остаётся верной при любых числах (Антон 11.11). По умолчанию 2000 mB и 20 минут — 400/500/300/600/200 mB
+     * и 4/5/3/6/2 минуты, как решено 09.11.
+     */
+
+    /** Доли стадий в цене UU и во времени роста клона, %. */
+    public static final int[] STAGE_SHARE = {20, 25, 15, 30, 10};
+    /** UU на стадию, mB (из MRConfig.BALANCE.cloneUu). */
+    private static int[] stageUu = split(2000);
+    /** Время стадии без ускорителей, тики (из MRConfig.BALANCE.cloneGrowMinutes). */
+    private static int[] stageTicks = split(20 * 1200);
     /** Рост, EU/t без ускорителей. */
-    public static final double GROW_EU = 512;
+    private static double growEuBase = 512;
     /** Удержание недоделанных слоёв (пауза, нет UU, мало энергии), EU/t. */
-    public static final double HOLD_EU = 16;
-    /** Жизнь готового клона, EU/t (Антон 09.11: ориентир — полный РИТЭГ IC2); недоделанные слои держатся на HOLD_EU. */
-    public static final double LIFE_EU = 32;
+    private static double holdEu = 16;
+    /** Жизнь готового клона, EU/t (Антон 09.11: ориентир — полный РИТЭГ IC2); недоделанные слои держатся на holdEu. */
+    private static double lifeEu = 32;
     /** Откат без энергии: тиков прогресса за тик (вдвое медленнее роста). */
     public static final double ROLLBACK_SPEED = 0.5;
     private static final double EPS = 1e-6;
@@ -127,11 +137,82 @@ public class TileReplicator extends TileEntity implements ITickable {
     public static final int MAX_HEALTH = 20;
     /** Изменение здоровья за тик: 1 единица в минуту — с полного до гибели без питания 20 минут, один игровой день. */
     public static final double HEALTH_PER_TICK = 1.0 / 1200;
-    /** Жизнь: 24 mB UU в игровой день — игровой час (1000 тиков) стоит 1 mB (Антон 09.11). Полный бак — 666 дней. */
-    public static final int LIFE_UU_PER_DAY = 24;
-    public static final double LIFE_UU_PER_TICK = LIFE_UU_PER_DAY / 24000.0;
-    /** У живого клона трубам не отдаются последние 240 mB (10 игровых дней жизни). */
-    public static final int PIPE_KEEP_MB = 10 * LIFE_UU_PER_DAY;
+    /** Жизнь: mB UU в игровой день; по умолчанию 24 — игровой час (1000 тиков) стоит 1 mB (Антон 09.11), полный бак — 666 дней. */
+    private static int lifeUuPerDay = 24;
+    private static double lifeUuPerTick = lifeUuPerDay / 24000.0;
+    /** У живого клона трубам не отдаются последние 10 игровых дней жизни (по умолчанию 240 mB). */
+    private static final int PIPE_KEEP_DAYS = 10;
+
+    /** Прочитать баланс из конфига (запуск мира: FMLServerAboutToStartEvent). Числа вне диапазона подрезаются. */
+    public static void loadBalance() {
+        MRConfig.Balance b = MRConfig.BALANCE;
+        stageUu = split(clamp(b.cloneUu, 20, 16000));
+        stageTicks = split(clamp(b.cloneGrowMinutes, 1, 120) * 1200);
+        growEuBase = clamp(b.growEu, 1, 2048);
+        holdEu = clamp(b.holdEu, 1, 512);
+        lifeEu = clamp(b.lifeEu, 1, 2048);
+        lifeUuPerDay = clamp(b.lifeUuPerDay, 1, 1000);
+        lifeUuPerTick = lifeUuPerDay / 24000.0;
+    }
+
+    private static int clamp(int v, int min, int max) {
+        return Math.max(min, Math.min(max, v));
+    }
+
+    /**
+     * Разделить total по стадиям в пропорции STAGE_SHARE; сумма частей ровно total (остаток от округления вниз
+     * достаётся стадиям с наибольшей дробной частью). Наименьшая часть — не меньше 1.
+     */
+    static int[] split(int total) {
+        int[] part = new int[STAGES];
+        int[] rem = new int[STAGES];
+        int sum = 0;
+        for (int i = 0; i < STAGES; i++) {
+            long scaled = (long) total * STAGE_SHARE[i];
+            part[i] = (int) (scaled / 100);
+            rem[i] = (int) (scaled % 100);
+            sum += part[i];
+        }
+        for (int left = total - sum; left > 0; left--) {
+            int best = 0;
+            for (int i = 1; i < STAGES; i++) {
+                if (rem[i] > rem[best]) {
+                    best = i;
+                }
+            }
+            part[best]++;
+            rem[best] = -1;
+        }
+        for (int i = 0; i < STAGES; i++) {
+            part[i] = Math.max(1, part[i]);
+        }
+        return part;
+    }
+
+    /** Рост, EU/t без ускорителей (числа сервера). */
+    public static double getGrowEuBase() {
+        return growEuBase;
+    }
+
+    /** Удержание недоделанных слоёв, EU/t. */
+    public static double getHoldEu() {
+        return holdEu;
+    }
+
+    /** Жизнь готового клона, EU/t. */
+    public static double getLifeEu() {
+        return lifeEu;
+    }
+
+    /** Жизнь готового клона, mB UU в игровой день. */
+    public static int getLifeUuPerDay() {
+        return lifeUuPerDay;
+    }
+
+    /** Сколько mB у живого клона трубам не отдаётся. */
+    public static int pipeKeepMb() {
+        return PIPE_KEEP_DAYS * lifeUuPerDay;
+    }
     /** Гибель клона: гнилая плоть. */
     public static final int DEATH_FLESH = 5;
     /** Тревожный сигнал, пока здоровье падает: раз в 3 секунды. */
@@ -141,8 +222,16 @@ public class TileReplicator extends TileEntity implements ITickable {
 
     /** Текущая стадия 0..4; STAGES — клон готов. Стадии ниже текущей выращены целиком. */
     private int stage;
-    /** Прогресс текущей стадии, тики без ускорителей (0..STAGE_TICKS[stage]). */
+    /** Прогресс текущей стадии, тики без ускорителей (0..stageTotal()). */
     private double progress;
+    /**
+     * Цена UU и время каждой стадии этого клона. Берутся из баланса, когда стадия начинается, и хранятся в машине:
+     * начатая стадия доращивается по своей цене, а откат и корзина снимают выращенные стадии по той цене, по которой
+     * их растили, даже если настройки поменяли (Антон 11.11: иначе дешёвый рост и дорогой возврат). Клиент получает
+     * их с сервера.
+     */
+    private final int[] costs = stageUu.clone();
+    private final int[] times = stageTicks.clone();
     /**
      * Сколько UU текущей стадии внутри, доля 0..1. Стадия забирает всю UU на старте (1); откат снимает прогресс
      * и столько же «оплаты». Пока доля меньше 1, это долг: перед ростом машина добирает его из бака.
@@ -171,7 +260,7 @@ public class TileReplicator extends TileEntity implements ITickable {
 
     /** Растить заново после каждого воскрешения (иначе один раз). */
     private boolean repeat;
-    /** Ручная пауза: рост стоит, выращенное держится на HOLD_EU. */
+    /** Ручная пауза: рост стоит, выращенное держится на holdEu. */
     private boolean paused;
     /** Выбранный шаблон: копия образца крови из хранилища шаблонов; машина хранит её у себя, как репликатор IC2. */
     private ItemStack pattern = ItemStack.EMPTY;
@@ -222,7 +311,7 @@ public class TileReplicator extends TileEntity implements ITickable {
         return tank;
     }
 
-    /** Бак для труб через порты: у живого клона последние PIPE_KEEP_MB mB не откачиваются (Антон, план 4в). */
+    /** Бак для труб через порты: у живого клона последние pipeKeepMb() mB не откачиваются (Антон, план 4в). */
     public IFluidHandler getPipeTank() {
         return pipeTank;
     }
@@ -257,7 +346,7 @@ public class TileReplicator extends TileEntity implements ITickable {
     };
 
     private int pipeDrainable() {
-        return Math.max(0, tank.getFluidAmount() - (stage >= STAGES ? PIPE_KEEP_MB : 0));
+        return Math.max(0, tank.getFluidAmount() - (stage >= STAGES ? pipeKeepMb() : 0));
     }
 
     public IItemHandler getAutomation() {
@@ -558,7 +647,7 @@ public class TileReplicator extends TileEntity implements ITickable {
     /**
      * Один тик роста. По порядку:
      * без шаблона машина ждёт; готовый клон держится (поддержание — 4в);
-     * меньше HOLD_EU в запасе (и кристалл пуст: он уже долит) — выращенное откатывается;
+     * меньше holdEu в запасе (и кристалл пуст: он уже долит) — выращенное откатывается;
      * пауза — держит; долг стадии добирается из бака, нет UU — держит; хватает энергии на рост — растёт, иначе держит.
      * Пока в камере пусто, удержание ничего не стоит.
      */
@@ -623,7 +712,7 @@ public class TileReplicator extends TileEntity implements ITickable {
         // запас вместе с пришедшим за тик: удержание берётся сначала из входа (holdFrom), запас трогается только при нехватке
         double stored = Math.min(sink.getCapacity(), sink.getEnergyStored() + in);
         boolean growth = hasGrowth();
-        if (stored < HOLD_EU) {
+        if (stored < holdEu) {
             storeInput(in);
             stored = sink.getEnergyStored();
             if (growth) {
@@ -663,22 +752,22 @@ public class TileReplicator extends TileEntity implements ITickable {
     }
 
     /**
-     * Один тик жизни готового клона (Антон 08.11, числа 09.11). Энергия LIFE_EU (32 EU/t): из пришедшего, затем из запаса
-     * (кристалл уже долил). UU 24 mB на игровой день, берётся вперёд по 1 mB (на игровой час). Есть и то и другое — здоровье растёт на 1 в минуту до 20; нет UU или
+     * Один тик жизни готового клона (Антон 08.11, числа 09.11). Энергия lifeEu (по умолчанию 32 EU/t): из пришедшего, затем из запаса
+     * (кристалл уже долил). UU lifeUuPerDay (24 mB) на игровой день, берётся вперёд по 1 mB (на игровой час). Есть и то и другое — здоровье растёт на 1 в минуту до 20; нет UU или
      * энергии — падает на 1 в минуту (одновременно обоих — так же), звучит тревога; дошло до нуля — клон погибает.
      * Без энергии UU не тратится.
      */
     private void tickUpkeep(double in) {
         double stored = Math.min(sink.getCapacity(), sink.getEnergyStored() + in);
         boolean fed = false;
-        if (stored >= LIFE_EU - EPS) {
-            holdFrom(in, LIFE_EU);
-            if (lifeUu < LIFE_UU_PER_TICK - EPS && tank.getFluidAmount() >= 1) {
+        if (stored >= lifeEu - EPS) {
+            holdFrom(in, lifeEu);
+            if (lifeUu < lifeUuPerTick - EPS && tank.getFluidAmount() >= 1) {
                 tank.drain(1, true);
                 lifeUu += 1;
             }
-            if (lifeUu >= LIFE_UU_PER_TICK - EPS) {
-                lifeUu = Math.max(0, lifeUu - LIFE_UU_PER_TICK);
+            if (lifeUu >= lifeUuPerTick - EPS) {
+                lifeUu = Math.max(0, lifeUu - lifeUuPerTick);
                 fed = true;
             }
             status = fed ? Status.READY : Status.NEED_UU;
@@ -707,6 +796,7 @@ public class TileReplicator extends TileEntity implements ITickable {
         stage = 0;
         progress = 0;
         paid = 0;
+        takeStageValues();
         rollingFull = false;
         charging = false;
         health = 0;
@@ -738,10 +828,10 @@ public class TileReplicator extends TileEntity implements ITickable {
         }
         double mb = tank.getFluidAmount() + lifeUu;
         // остаток взятого 1 mB меньше расхода за тик клону уже не помогает (он голодает) — это «UU нет», а не «<1 дн.»
-        if (mb < LIFE_UU_PER_TICK - EPS) {
+        if (mb < lifeUuPerTick - EPS) {
             return 0;
         }
-        int days = (int) Math.floor(mb / LIFE_UU_PER_DAY + EPS);
+        int days = (int) Math.floor(mb / lifeUuPerDay + EPS);
         return days > 0 ? days : UU_DAYS_LESS_THAN_ONE;
     }
 
@@ -757,7 +847,7 @@ public class TileReplicator extends TileEntity implements ITickable {
 
     /** Сколько UU не хватает до оплаты текущей стадии (долг после отката или вся цена новой стадии), mB. */
     private int debt() {
-        return paid < 1 - EPS ? Math.max(0, (int) Math.ceil((1 - paid) * STAGE_UU[stage] - EPS)) : 0;
+        return paid < 1 - EPS ? Math.max(0, (int) Math.ceil((1 - paid) * stageCost() - EPS)) : 0;
     }
 
     /** Можно расти, если хватит энергии: есть шаблон, стадия не последняя, не пауза, UU на долг есть. */
@@ -775,7 +865,7 @@ public class TileReplicator extends TileEntity implements ITickable {
         if (pattern.isEmpty()) {
             return 0;
         }
-        return stage >= STAGES ? LIFE_EU : hasGrowth() ? HOLD_EU : 0;
+        return stage >= STAGES ? lifeEu : hasGrowth() ? holdEu : 0;
     }
 
     private void payDebt() {
@@ -792,7 +882,7 @@ public class TileReplicator extends TileEntity implements ITickable {
     /** Один шаг роста (энергия уже списана). */
     private void grow(int oc) {
         double speed = Math.pow(0.7, -oc);
-        double total = STAGE_TICKS[stage];
+        double total = stageTotal();
         progress = Math.min(total, progress + speed);
         status = Status.GROWING;
         secondsLeft = (int) Math.ceil((total - progress) / speed / 20 - EPS);
@@ -801,6 +891,7 @@ public class TileReplicator extends TileEntity implements ITickable {
             progress = 0;
             paid = 0;
             rollingFull = false;
+            takeStageValues();
             if (stage >= STAGES) {
                 status = Status.READY;
                 health = MAX_HEALTH; // готовый клон здоров; первый 1 mB на жизнь берётся следующим тиком
@@ -849,11 +940,11 @@ public class TileReplicator extends TileEntity implements ITickable {
      * частично выращенная — ничего.
      */
     private void rollback() {
-        int cost = STAGE_UU[stage];
+        int cost = stageCost();
         if (progress > EPS) {
             double lost = Math.min(ROLLBACK_SPEED, progress);
             progress -= lost;
-            paid = Math.max(0, paid - lost / STAGE_TICKS[stage]);
+            paid = Math.max(0, paid - lost / stageTotal());
             if (progress > EPS) {
                 markSaveDirty();
                 return;
@@ -868,7 +959,7 @@ public class TileReplicator extends TileEntity implements ITickable {
         paid = 0;
         if (stage > 0) {
             stage--;
-            progress = STAGE_TICKS[stage];
+            progress = stageTotal(); // выращенная стадия снимается по своим числам
             paid = 1;
             rollingFull = true;
         }
@@ -885,7 +976,7 @@ public class TileReplicator extends TileEntity implements ITickable {
      * Пустая камера ничего не тратит.
      */
     private void holdFrom(double in, boolean growth) {
-        holdFrom(in, growth ? HOLD_EU : 0);
+        holdFrom(in, growth ? holdEu : 0);
     }
 
     /** Расход need EU за тик: сначала из пришедшего, недостающее — из запаса; остаток входа — в запас. */
@@ -944,13 +1035,24 @@ public class TileReplicator extends TileEntity implements ITickable {
         }
     }
 
+    /**
+     * Машина в мире (сервер, после чтения сохранения): если текущая стадия ещё не начата (ни прогресса, ни оплаты),
+     * её цена и время берутся из нынешних настроек; начатая доращивается по своим.
+     */
+    @Override
+    public void onLoad() {
+        if (world != null && !world.isRemote && stage < STAGES && progress <= EPS && paid <= EPS) {
+            takeStageValues();
+        }
+    }
+
     public int getStage() {
         return stage;
     }
 
     /** Прогресс текущей стадии, 0..1. */
     public double getStageProgress() {
-        return stage >= STAGES ? 1 : progress / STAGE_TICKS[stage];
+        return stage >= STAGES ? 1 : progress / stageTotal();
     }
 
     public Status getStatus() {
@@ -967,9 +1069,35 @@ public class TileReplicator extends TileEntity implements ITickable {
         return secondsLeft;
     }
 
-    /** Рост, EU/t, с ускорителями n штук (окно показывает в подсказке «мало энергии»). */
+    /** Рост, EU/t, с ускорителями n штук. */
     public static double growEu(int overclockers) {
-        return GROW_EU * Math.pow(1.6, overclockers);
+        return growEu(growEuBase, overclockers);
+    }
+
+    /** Рост при базе base EU/t (окно считает по числу сервера) с ускорителями n штук. */
+    public static double growEu(double base, int overclockers) {
+        return base * Math.pow(1.6, overclockers);
+    }
+
+    /**
+     * Взять цену и время текущей стадии из баланса (стадия начинается или машина пуста). У готового клона текущей стадии
+     * нет: числа «Кожи» остаются теми, по которым её растили.
+     */
+    private void takeStageValues() {
+        if (stage < STAGES) {
+            costs[stage] = stageUu[stage];
+            times[stage] = stageTicks[stage];
+        }
+    }
+
+    /** Цена UU текущей стадии, mB (своя у этого клона). */
+    private int stageCost() {
+        return costs[Math.min(stage, STAGES - 1)];
+    }
+
+    /** Время текущей стадии без ускорителей, тики (своё у этого клона). */
+    private int stageTotal() {
+        return times[Math.min(stage, STAGES - 1)];
     }
 
     /**
@@ -1184,7 +1312,7 @@ public class TileReplicator extends TileEntity implements ITickable {
     public int resetFlesh() {
         // стадия, в которую откат перешёл, считается целой, только пока откат её ещё не тронул; частично снятая плоти
         // не даёт, как и при откате (Антон 07.11: иначе стадия «состояла бы из 2 плотей»)
-        boolean wholeRolling = rollingFull && stage < STAGES && progress >= STAGE_TICKS[stage] - EPS;
+        boolean wholeRolling = rollingFull && stage < STAGES && progress >= stageTotal() - EPS;
         return Math.min(STAGES, stage + (wholeRolling ? 1 : 0));
     }
 
@@ -1199,16 +1327,17 @@ public class TileReplicator extends TileEntity implements ITickable {
         }
         if (hasGrowth()) {
             if (stage < STAGES) {
-                double unbuilt = paid - progress / STAGE_TICKS[stage];
+                double unbuilt = paid - progress / stageTotal();
                 // вверх: за первые доли секунды роста стадия не теряет 1 mB (проверка Антона 07.11: 999 из 1000);
                 // больше заплаченного вернуть нельзя — unbuilt ≤ paid ≤ 1, корзина разовая
-                refund((int) Math.ceil(Math.max(0, unbuilt) * STAGE_UU[stage] - EPS));
+                refund((int) Math.ceil(Math.max(0, unbuilt) * stageCost() - EPS));
             }
             giveFlesh(resetFlesh());
         }
         stage = 0;
         progress = 0;
         paid = 0;
+        takeStageValues();
         rollingFull = false;
         paused = false;
         charging = false;
@@ -1468,7 +1597,14 @@ public class TileReplicator extends TileEntity implements ITickable {
         sink.readFromNBT(tag);
         tank.readFromNBT(tag.getCompoundTag("Tank")); // в старых мирах тега нет: бак пустой
         stage = Math.max(0, Math.min(STAGES, tag.getInteger("Stage")));
-        progress = stage < STAGES ? Math.max(0, Math.min(STAGE_TICKS[stage], tag.getDouble("Progress"))) : 0;
+        int[] savedCosts = tag.getIntArray("StageCosts");
+        int[] savedTimes = tag.getIntArray("StageTimes");
+        for (int i = 0; i < STAGES; i++) {
+            // мир до 5в+ — нынешние числа
+            costs[i] = savedCosts.length == STAGES ? Math.max(1, savedCosts[i]) : stageUu[i];
+            times[i] = savedTimes.length == STAGES ? Math.max(1, savedTimes[i]) : stageTicks[i];
+        }
+        progress = stage < STAGES ? Math.max(0, Math.min(stageTotal(), tag.getDouble("Progress"))) : 0;
         paid = stage < STAGES ? Math.max(0, Math.min(1, tag.getDouble("Paid"))) : 0;
         rollingFull = tag.getBoolean("RollingFull");
         charging = tag.getBoolean("Charging");
@@ -1520,6 +1656,8 @@ public class TileReplicator extends TileEntity implements ITickable {
         tag.setTag("Tank", tank.writeToNBT(new NBTTagCompound()));
         tag.setInteger("Stage", stage);
         tag.setDouble("Progress", progress);
+        tag.setIntArray("StageCosts", costs.clone());
+        tag.setIntArray("StageTimes", times.clone());
         tag.setDouble("Paid", paid);
         tag.setBoolean("RollingFull", rollingFull);
         tag.setBoolean("Charging", charging);

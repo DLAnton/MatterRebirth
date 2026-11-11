@@ -200,7 +200,8 @@ public class GuiReplicator extends GuiContainer {
             tip.add(I18n.format("gui.matterrebirth.replicator.info"));
         } else if (mx >= BOLT_X - 4 && mx < BOLT_X + 12 && my >= BOLT_Y - 1 && my < BOLT_Y + 15) {
             // как у предметов IC2: «954 k / 1 M EU», формат самой IC2 (Util.toSiString, 3 значащие цифры; Антон 07.11)
-            tip.add(I18n.format("gui.matterrebirth.replicator.charge", ic2.core.util.Util.toSiString(container.getEnergy(), 3),
+            // заряд — вниз до 3 значащих цифр: почти полный запас (999 984) не округляется в «1000 k» (Антон 11.11)
+            tip.add(I18n.format("gui.matterrebirth.replicator.charge", ic2.core.util.Util.toSiString(floor3(container.getEnergy()), 3),
                     ic2.core.util.Util.toSiString(container.getCapacity(), 3)));
             String name = tierName(container.getTier());
             tip.add(name.isEmpty() ? I18n.format("gui.matterrebirth.replicator.tier_plain", container.getTier())
@@ -359,13 +360,13 @@ public class GuiReplicator extends GuiContainer {
             return;
         }
         int total = 0;
-        for (int t : TileReplicator.STAGE_TICKS) {
+        for (int t : TileReplicator.STAGE_SHARE) { // время стадий делится в этой же пропорции при любых настройках (5в+)
             total += t;
         }
         int inner = BAR_H - 2 - (TileReplicator.STAGES - 1); // между отрезками перегородки в 1 пиксель
         int y = top + BAR_H - 1;
         for (int i = 0; i < TileReplicator.STAGES; i++) {
-            int h = i < TileReplicator.STAGES - 1 ? Math.round((float) inner * TileReplicator.STAGE_TICKS[i] / total) : y - (top + 1);
+            int h = i < TileReplicator.STAGES - 1 ? Math.round((float) inner * TileReplicator.STAGE_SHARE[i] / total) : y - (top + 1);
             y -= h;
             drawRect(x + 1, y, x + 5, y + h, 0xFF000000);
             float f = h * stageFill(i);
@@ -502,12 +503,22 @@ public class GuiReplicator extends GuiContainer {
         fontRenderer.drawString(text, x + 11 - fontRenderer.getStringWidth(text) / 2, CONF_BTN_Y + 2, textColor);
     }
 
+    /** Число вниз до 3 значащих цифр (999 984 → 999 000): IC2 при выводе округляет, а полным запас показывать рано. */
+    private static double floor3(double v) {
+        if (v < 1000) {
+            return Math.floor(v);
+        }
+        double scale = Math.pow(10, Math.floor(Math.log10(v)) - 2);
+        return Math.floor(v / scale + 1e-9) * scale;
+    }
+
     /** Подсказка к строке состояния: сколько не хватает UU или энергии, что значит откат. */
     private String statusTip() {
         if (ready()) {
-            // поддержание (4в, числа 5в): жизнь стоит 24 mB UU в игровой день и 32 EU/t; без них здоровье падает на 1 в минуту
-            long life = Math.round(TileReplicator.LIFE_EU);
-            int perDay = TileReplicator.LIFE_UU_PER_DAY;
+            // поддержание (4в, числа 5в, настройки 5в+): жизнь стоит mB UU в игровой день и EU/t — числа сервера;
+            // без них здоровье падает на 1 в минуту
+            int life = container.getLifeEu();
+            int perDay = container.getLifeUuPerDay();
             switch (container.getStatus()) {
                 case NEED_UU:
                     return I18n.format("gui.matterrebirth.replicator.upkeep_no_uu_tip", perDay);
@@ -525,24 +536,24 @@ public class GuiReplicator extends GuiContainer {
                 return I18n.format("gui.matterrebirth.replicator.need_uu_tip", container.getUuShort());
             case LOW_POWER:
                 return I18n.format("gui.matterrebirth.replicator.low_power_tip",
-                        Math.round(TileReplicator.growEu(container.getTile().overclockers())));
+                        Math.round(TileReplicator.growEu(container.getGrowEu(), container.getTile().overclockers())));
             case CHARGING:
                 if (container.getTile().isPaused()) {
                     return I18n.format("gui.matterrebirth.replicator.charging_paused_tip", // после зарядки снова пауза
-                            Math.round(TileReplicator.HOLD_EU));
+                            container.getHoldEu());
                 }
-                return I18n.format("gui.matterrebirth.replicator.charging_tip", Math.round(TileReplicator.HOLD_EU),
-                        Math.round(TileReplicator.growEu(container.getTile().overclockers())));
+                return I18n.format("gui.matterrebirth.replicator.charging_tip", container.getHoldEu(),
+                        Math.round(TileReplicator.growEu(container.getGrowEu(), container.getTile().overclockers())));
             case OVERLOAD:
-                long grow = Math.round(TileReplicator.growEu(container.getTile().overclockers()));
+                long grow = Math.round(TileReplicator.growEu(container.getGrowEu(), container.getTile().overclockers()));
                 return I18n.format("gui.matterrebirth.replicator.overload_tip", grow, container.getCapacity() / 2,
-                        Math.round(TileReplicator.HOLD_EU), grow);
+                        container.getHoldEu(), grow);
             case ROLLBACK:
                 return I18n.format("gui.matterrebirth.replicator.rollback_tip");
             case PAUSED:
                 // с выращенным пауза стоит удержания, без него (шаблон ждёт «Начать рост») — ничего (Антон 07.11)
                 return container.hasGrowth()
-                        ? I18n.format("gui.matterrebirth.replicator.paused_tip", Math.round(TileReplicator.HOLD_EU))
+                        ? I18n.format("gui.matterrebirth.replicator.paused_tip", container.getHoldEu())
                         : I18n.format("gui.matterrebirth.replicator.paused_idle_tip");
             default:
                 return null;

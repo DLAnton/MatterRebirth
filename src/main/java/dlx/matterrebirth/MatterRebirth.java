@@ -1,12 +1,14 @@
 package dlx.matterrebirth;
 
 import dlx.matterrebirth.proxy.Proxy;
+import dlx.matterrebirth.tile.TileReplicator;
 import net.minecraftforge.fml.common.Loader;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.common.SidedProxy;
 import net.minecraftforge.fml.common.event.FMLInitializationEvent;
 import net.minecraftforge.fml.common.event.FMLPostInitializationEvent;
 import net.minecraftforge.fml.common.event.FMLPreInitializationEvent;
+import net.minecraftforge.fml.common.event.FMLServerAboutToStartEvent;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -49,5 +51,11 @@ public class MatterRebirth {
     @Mod.EventHandler
     public void postInit(FMLPostInitializationEvent event) {
         proxy.postInit(event);
+    }
+
+    /** Запуск мира (и одиночного, и сервера): цены клона из настроек — новые значения действуют после перезахода (5в+). */
+    @Mod.EventHandler
+    public void serverAboutToStart(FMLServerAboutToStartEvent event) {
+        TileReplicator.loadBalance();
     }
 }
