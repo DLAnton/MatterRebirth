@@ -88,7 +88,7 @@ public class TileReplicator extends TileEntity implements ITickable {
 
         @Override
         protected void onContentsChanged() {
-            markDirty();
+            markSaveDirty(); // трубы могут лить каждый тик; сигнал компаратора от бака не зависит
         }
     };
 
@@ -103,14 +103,16 @@ public class TileReplicator extends TileEntity implements ITickable {
     // --- рост: стадии снизу вверх — скелет, нервы, сосуды, мышцы, кожа (числа стартовые, решения Антона 07.11) ---
 
     public static final int STAGES = 5;
-    /** UU на стадию, mB. */
-    public static final int[] STAGE_UU = {200, 250, 150, 300, 100};
+    /** UU на стадию, mB (вдвое дороже первых чисел — Антон 09.11, шаг 5в: клон стоит 2 ведра). */
+    public static final int[] STAGE_UU = {400, 500, 300, 600, 200};
     /** Время стадии без ускорителей, тики (4, 5, 3, 6 и 2 минуты). */
     public static final int[] STAGE_TICKS = {4800, 6000, 3600, 7200, 2400};
     /** Рост, EU/t без ускорителей. */
     public static final double GROW_EU = 512;
     /** Удержание недоделанных слоёв (пауза, нет UU, мало энергии), EU/t. */
     public static final double HOLD_EU = 16;
+    /** Жизнь готового клона, EU/t (Антон 09.11: ориентир — полный РИТЭГ IC2); недоделанные слои держатся на HOLD_EU. */
+    public static final double LIFE_EU = 32;
     /** Откат без энергии: тиков прогресса за тик (вдвое медленнее роста). */
     public static final double ROLLBACK_SPEED = 0.5;
     private static final double EPS = 1e-6;
@@ -125,10 +127,11 @@ public class TileReplicator extends TileEntity implements ITickable {
     public static final int MAX_HEALTH = 20;
     /** Изменение здоровья за тик: 1 единица в минуту — с полного до гибели без питания 20 минут, один игровой день. */
     public static final double HEALTH_PER_TICK = 1.0 / 1200;
-    /** Жизнь: 1 mB UU в игровой день (24000 тиков). */
-    public static final double LIFE_UU_PER_TICK = 1.0 / 24000;
-    /** У живого клона трубам не отдаются последние 10 mB (10 игровых дней жизни). */
-    public static final int PIPE_KEEP_MB = 10;
+    /** Жизнь: 24 mB UU в игровой день — игровой час (1000 тиков) стоит 1 mB (Антон 09.11). Полный бак — 666 дней. */
+    public static final int LIFE_UU_PER_DAY = 24;
+    public static final double LIFE_UU_PER_TICK = LIFE_UU_PER_DAY / 24000.0;
+    /** У живого клона трубам не отдаются последние 240 mB (10 игровых дней жизни). */
+    public static final int PIPE_KEEP_MB = 10 * LIFE_UU_PER_DAY;
     /** Гибель клона: гнилая плоть. */
     public static final int DEATH_FLESH = 5;
     /** Тревожный сигнал, пока здоровье падает: раз в 3 секунды. */
@@ -660,16 +663,16 @@ public class TileReplicator extends TileEntity implements ITickable {
     }
 
     /**
-     * Один тик жизни готового клона (Антон 08.11). Энергия 16 EU/t: из пришедшего, затем из запаса (кристалл уже долил).
-     * UU 1 mB на игровой день, берётся вперёд. Есть и то и другое — здоровье растёт на 1 в минуту до 20; нет UU или
+     * Один тик жизни готового клона (Антон 08.11, числа 09.11). Энергия LIFE_EU (32 EU/t): из пришедшего, затем из запаса
+     * (кристалл уже долил). UU 24 mB на игровой день, берётся вперёд по 1 mB (на игровой час). Есть и то и другое — здоровье растёт на 1 в минуту до 20; нет UU или
      * энергии — падает на 1 в минуту (одновременно обоих — так же), звучит тревога; дошло до нуля — клон погибает.
      * Без энергии UU не тратится.
      */
     private void tickUpkeep(double in) {
         double stored = Math.min(sink.getCapacity(), sink.getEnergyStored() + in);
         boolean fed = false;
-        if (stored >= HOLD_EU - EPS) {
-            holdFrom(in, true);
+        if (stored >= LIFE_EU - EPS) {
+            holdFrom(in, LIFE_EU);
             if (lifeUu < LIFE_UU_PER_TICK - EPS && tank.getFluidAmount() >= 1) {
                 tank.drain(1, true);
                 lifeUu += 1;
@@ -681,7 +684,7 @@ public class TileReplicator extends TileEntity implements ITickable {
             status = fed ? Status.READY : Status.NEED_UU;
             uuShort = fed ? 0 : 1;
         } else {
-            // остаток меньше удержания ни на что не хватает: уходит на попытку, экран гаснет (как при откате роста)
+            // остаток меньше расхода жизни ни на что не хватает: уходит на попытку, лампа EU гаснет (как при откате роста)
             storeInput(in);
             use(sink.getEnergyStored());
             status = Status.NO_POWER;
@@ -692,7 +695,7 @@ public class TileReplicator extends TileEntity implements ITickable {
             die();
             return;
         }
-        markDirty();
+        markSaveDirty();
     }
 
     /**
@@ -725,10 +728,25 @@ public class TileReplicator extends TileEntity implements ITickable {
         return stage >= STAGES ? health / MAX_HEALTH : 0;
     }
 
-    /** На сколько игровых дней хватит UU в баке (и уже взятой) клону; начатый день считается целым, 0 — UU нет совсем. */
+    /**
+     * На сколько игровых дней хватит UU в баке (и уже взятой) клону: только полные дни (Антон 09.11 — полный бак
+     * показывает 666, а не 667); UU осталось меньше чем на день — UU_DAYS_LESS_THAN_ONE; 0 — UU нет совсем.
+     */
     public int getUuDays() {
-        return stage >= STAGES ? (int) Math.ceil(tank.getFluidAmount() + lifeUu - EPS) : 0;
+        if (stage < STAGES) {
+            return 0;
+        }
+        double mb = tank.getFluidAmount() + lifeUu;
+        // остаток взятого 1 mB меньше расхода за тик клону уже не помогает (он голодает) — это «UU нет», а не «<1 дн.»
+        if (mb < LIFE_UU_PER_TICK - EPS) {
+            return 0;
+        }
+        int days = (int) Math.floor(mb / LIFE_UU_PER_DAY + EPS);
+        return days > 0 ? days : UU_DAYS_LESS_THAN_ONE;
     }
+
+    /** getUuDays: UU есть, но меньше чем на игровой день (окно пишет «<1 дн.»). */
+    public static final int UU_DAYS_LESS_THAN_ONE = -1;
 
     public boolean isDead() {
         return dead;
@@ -754,7 +772,10 @@ public class TileReplicator extends TileEntity implements ITickable {
         }
         // расти нельзя, но есть что держать: сеть отдаёт 16 EU/t удержания прямо во вход, запас остаётся полным
         // (иначе запас каждый тик на 16 EU ниже полного, а кристалл тратится на удержание — проверка Антона 07.11)
-        return !pattern.isEmpty() && (stage >= STAGES || hasGrowth()) ? HOLD_EU : 0;
+        if (pattern.isEmpty()) {
+            return 0;
+        }
+        return stage >= STAGES ? LIFE_EU : hasGrowth() ? HOLD_EU : 0;
     }
 
     private void payDebt() {
@@ -787,7 +808,7 @@ public class TileReplicator extends TileEntity implements ITickable {
             }
             sync(); // новая стадия на клиент (окно, позже модель)
         } else {
-            markDirty();
+            markSaveDirty();
         }
     }
 
@@ -817,7 +838,7 @@ public class TileReplicator extends TileEntity implements ITickable {
         ItemStack reserve = inventory.getStackInSlot(ReplicatorInventory.RESERVE);
         if (amount > 0 && !reserve.isEmpty()) {
             ElectricItem.manager.discharge(reserve, amount, sink.getSinkTier(), true, false, false);
-            markDirty();
+            markSaveDirty();
         }
     }
 
@@ -834,7 +855,7 @@ public class TileReplicator extends TileEntity implements ITickable {
             progress -= lost;
             paid = Math.max(0, paid - lost / STAGE_TICKS[stage]);
             if (progress > EPS) {
-                markDirty();
+                markSaveDirty();
                 return;
             }
             progress = 0;
@@ -864,10 +885,26 @@ public class TileReplicator extends TileEntity implements ITickable {
      * Пустая камера ничего не тратит.
      */
     private void holdFrom(double in, boolean growth) {
-        double take = growth ? Math.min(in, HOLD_EU) : 0;
+        holdFrom(in, growth ? HOLD_EU : 0);
+    }
+
+    /** Расход need EU за тик: сначала из пришедшего, недостающее — из запаса; остаток входа — в запас. */
+    private void holdFrom(double in, double need) {
+        double take = Math.min(in, need);
         storeInput(in - take);
-        if (growth && take < HOLD_EU) {
-            use(Math.min(HOLD_EU - take, sink.getEnergyStored()));
+        if (take < need) {
+            use(Math.min(need - take, sink.getEnergyStored()));
+        }
+    }
+
+    /**
+     * Отметить, что машину нужно сохранить, без markDirty: тот каждый раз шлёт соседям обновление компаратора, а рост,
+     * поддержание, заряд и бак меняются каждый тик (оптимизация 5в, Антон 09.11). Компараторы машина обновляет сама,
+     * когда меняется её сигнал (update → comparatorSignal).
+     */
+    private void markSaveDirty() {
+        if (world != null) {
+            world.markChunkDirty(pos, this);
         }
     }
 
@@ -1310,7 +1347,7 @@ public class TileReplicator extends TileEntity implements ITickable {
         double got = ElectricItem.manager.discharge(reserve, room, sink.getSinkTier(), true, false, false);
         if (got > 0) {
             sink.setEnergyStored(stored + got);
-            markDirty();
+            markSaveDirty();
         }
     }
 
@@ -1336,7 +1373,7 @@ public class TileReplicator extends TileEntity implements ITickable {
         }
         double moved = ElectricItem.manager.charge(reserve, Math.min(amount, reserveDemand()), sink.getSinkTier(), false, false);
         if (moved > 0) {
-            markDirty();
+            markSaveDirty();
         }
         return moved;
     }

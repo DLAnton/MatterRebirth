@@ -55,7 +55,7 @@ public class ContainerReplicator extends Container {
     private int sentFlesh = -1;
     private int sentHealth = -1;
     private int sentHealthMille = -1;
-    private int sentUuDays = -1;
+    private int sentUuDays = Integer.MIN_VALUE; // -1 — законное значение («меньше дня»), поэтому другой «ещё не слали»
 
     public ContainerReplicator(InventoryPlayer playerInv, TileReplicator tile) {
         this.tile = tile;
@@ -108,7 +108,7 @@ public class ContainerReplicator extends Container {
         int t = tile.getSink().getSinkTier();
         int f = tile.getTank().getFluidAmount(); // до 16000, в short помещается целиком
         int p = tile.isPowered() ? 1 : 0; // заряд в запасе или в кристалле резерва
-        // рост: стадия, прогресс стадии в тысячных, состояние, секунды до конца стадии (до 360), нехватка UU (до 300 mB)
+        // рост: стадия, прогресс стадии в тысячных, состояние, секунды до конца стадии (до 360), нехватка UU (до 600 mB)
         int st = tile.getStage();
         int mille = (int) Math.floor(tile.getStageProgress() * 1000);
         int stat = tile.getStatus().ordinal();
@@ -116,7 +116,7 @@ public class ContainerReplicator extends Container {
         int uu = Math.min(Short.MAX_VALUE, tile.getUuShort());
         int g = tile.hasGrowth() ? 1 : 0;
         int fl = tile.resetFlesh(); // для подтверждения корзины: сколько плоти останется
-        // поддержание (4в): здоровье числом и долей для шкалы, на сколько дней хватит UU (до 16001, в short помещается)
+        // поддержание (4в): здоровье числом и долей для шкалы, на сколько полных дней хватит UU (до 666; -1 — меньше дня), в short помещается
         int hp = tile.getHealthShown();
         int hpMille = (int) Math.round(tile.getHealthFraction() * 1000);
         int days = Math.min(Short.MAX_VALUE, tile.getUuDays());

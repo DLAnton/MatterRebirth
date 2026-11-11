@@ -505,16 +505,17 @@ public class GuiReplicator extends GuiContainer {
     /** Подсказка к строке состояния: сколько не хватает UU или энергии, что значит откат. */
     private String statusTip() {
         if (ready()) {
-            // поддержание (4в): жизнь стоит 1 mB UU в игровой день и 16 EU/t; без них здоровье падает на 1 в минуту
-            long hold = Math.round(TileReplicator.HOLD_EU);
+            // поддержание (4в, числа 5в): жизнь стоит 24 mB UU в игровой день и 32 EU/t; без них здоровье падает на 1 в минуту
+            long life = Math.round(TileReplicator.LIFE_EU);
+            int perDay = TileReplicator.LIFE_UU_PER_DAY;
             switch (container.getStatus()) {
                 case NEED_UU:
-                    return I18n.format("gui.matterrebirth.replicator.upkeep_no_uu_tip");
+                    return I18n.format("gui.matterrebirth.replicator.upkeep_no_uu_tip", perDay);
                 case NO_POWER:
-                    return I18n.format("gui.matterrebirth.replicator.upkeep_no_power_tip", hold);
+                    return I18n.format("gui.matterrebirth.replicator.upkeep_no_power_tip", life);
                 default:
                     return I18n.format(container.getHealth() < TileReplicator.MAX_HEALTH
-                            ? "gui.matterrebirth.replicator.upkeep_heal_tip" : "gui.matterrebirth.replicator.upkeep_tip", hold);
+                            ? "gui.matterrebirth.replicator.upkeep_heal_tip" : "gui.matterrebirth.replicator.upkeep_tip", perDay, life);
             }
         }
         switch (container.getStatus()) {
@@ -820,8 +821,11 @@ public class GuiReplicator extends GuiContainer {
                 falling ? RED : WHITE);
         fontRenderer.drawString(fontRenderer.trimStringToWidth(I18n.format("gui.matterrebirth.replicator.uu_for"), maxW),
                 TEXT_X, LIST_Y + LIST_STEP * 2 + 5, GREY);
-        String days = fontRenderer.trimStringToWidth(I18n.format("gui.matterrebirth.replicator.uu_days", container.getUuDays()), maxW);
-        fontRenderer.drawString(days, TEXT_X, LIST_Y + LIST_STEP * 3 + 5, container.getUuDays() > 0 ? WHITE : RED);
+        // только полные дни; меньше дня — «<1 дн.» (5в, Антон 09.11); UU нет совсем — 0 красным
+        int d = container.getUuDays();
+        String days = fontRenderer.trimStringToWidth(d == TileReplicator.UU_DAYS_LESS_THAN_ONE
+                ? I18n.format("gui.matterrebirth.replicator.uu_days_less") : I18n.format("gui.matterrebirth.replicator.uu_days", d), maxW);
+        fontRenderer.drawString(days, TEXT_X, LIST_Y + LIST_STEP * 3 + 5, d != 0 ? WHITE : RED);
     }
 
     private void drawGrowthText() {
