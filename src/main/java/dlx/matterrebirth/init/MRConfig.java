@@ -62,6 +62,12 @@ public class MRConfig {
         @Config.Comment("DEBUG, will be removed before release: replicator runs this many of its own ticks per game tick (growth, keeping, rollback). 1 = normal.")
         @Config.RangeInt(min = 1, max = 100)
         public int debugReplicatorSpeed = 1;
+
+        // отладочный лог для проверок (Антон 14.11): машина пишет в лог игры, что с ней происходит; Claude читает лог
+        @Config.Name("debugLog")
+        @Config.LangKey("matterrebirth.config.general.debugLog")
+        @Config.Comment("Write what clone replicators do to the game log: state changes, stages, rollback, returned UU-matter, decay, buttons, alarms. Lines start with [MR-debug]. Off for normal play.")
+        public boolean debugLog = false;
     }
 
     /**

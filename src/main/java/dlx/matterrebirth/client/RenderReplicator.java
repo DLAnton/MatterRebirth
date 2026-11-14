@@ -276,7 +276,7 @@ public class RenderReplicator extends TileEntitySpecialRenderer<TileReplicator> 
 
     /**
      * Ореол: полупрозрачное кольцо, ярче всего на самом кольце и тающее внутрь и наружу; складывается со светом под ним.
-     * Пол: круг радиусом 3,75 над полом (высота 5). Излучатель: ромб «радиусом» 3,5 на потолке камеры (16 + 12,5).
+     * Пол: круг радиусом 3,75 над полом колодца (высота 2). Излучатель: ромб «радиусом» 3,5 на потолке ниши (16 + 14).
      */
     private void drawGlow(int rgb) {
         float r = (rgb >> 16 & 255) / 255F, g = (rgb >> 8 & 255) / 255F, b = (rgb & 255) / 255F;
@@ -289,8 +289,8 @@ public class RenderReplicator extends TileEntitySpecialRenderer<TileReplicator> 
         Tessellator tess = Tessellator.getInstance();
         BufferBuilder buf = tess.getBuffer();
         buf.begin(GL11.GL_QUADS, DefaultVertexFormats.POSITION_COLOR);
-        ring(buf, 5.05, 2.7, 3.75, 5.6, 32, r, g, b, 0.55F);
-        ring(buf, 28.45, 2.4, 3.5, 5.2, 4, r, g, b, 0.5F); // 4 отрезка — ромб
+        ring(buf, 2.05, 2.7, 3.75, 5.6, 32, r, g, b, 0.55F);
+        ring(buf, 29.95, 2.4, 3.5, 5.2, 4, r, g, b, 0.5F); // 4 отрезка — ромб
         tess.draw();
 
         GlStateManager.shadeModel(GL11.GL_FLAT);

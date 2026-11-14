@@ -1,5 +1,5 @@
 {
-  "__comment": "Верхняя часть репликатора (этап 5а): крышка с портом и излучателем на потолке, задняя стенка, две передние стойки, стекло. Цвет кольца излучателя и стекло задаёт blockstate. Пока в баке есть UU, камера заполнена почти прозрачной жидкой материей IC2 (грани с текстурой #uu: картинка UU из IC2 с прозрачностью, собирает UuChamberSprite; показывает ReplicatorBakedModel).",
+  "__comment": "Верхняя часть репликатора (этап 5а, камера выше — 5д): крышка с портом и нишей излучателя (потолок камеры на 14/16, бортик шириной со стойку, стенки ниши — своя серая текстура), задняя стенка, две передние стойки, стекло. Цвет кольца излучателя и стекло задаёт blockstate. Пока в баке есть UU, камера и ниша заполнены почти прозрачной жидкой материей IC2 (грани с текстурой #uu: картинка UU из IC2 с прозрачностью, собирает UuChamberSprite; показывает ReplicatorBakedModel). Стекло и UU — плоскости только с наружной гранью, стекло в списке последним: снаружи луч проходит ровно один слой UU и одно стекло, и вид не зависит от порядка отрисовки полупрозрачного (Actinium рисовал дальнюю UU поверх ближнего стекла, бока выходили темнее переднего — Антон 14.11). Стекло без затенения по сторонам, как UU.",
   "ambientocclusion": false,
   "textures": {
     "particle": "matterrebirth:blocks/replicator_panel",
@@ -10,14 +10,15 @@
     "panel": "matterrebirth:blocks/replicator_panel",
     "ceiling": "matterrebirth:blocks/replicator_ceiling_off",
     "glass_upper": "matterrebirth:blocks/replicator_glass_upper",
-    "uu": "matterrebirth:blocks/uu_chamber"
+    "uu": "matterrebirth:blocks/uu_chamber_upper",
+    "well": "matterrebirth:blocks/replicator_well"
   },
   "elements": [
     {
-      "__comment": "крышка",
+      "__comment": "крышка: плита над нишей, снизу потолок камеры",
       "from": [
         0,
-        12.5,
+        14,
         0
       ],
       "to": [
@@ -31,7 +32,7 @@
             0,
             0,
             16,
-            3.5
+            2
           ],
           "texture": "#side_upper",
           "cullface": "north"
@@ -41,7 +42,7 @@
             0,
             0,
             16,
-            3.5
+            2
           ],
           "texture": "#back",
           "cullface": "south"
@@ -51,7 +52,7 @@
             0,
             0,
             16,
-            3.5
+            2
           ],
           "texture": "#side_upper",
           "cullface": "east"
@@ -61,7 +62,7 @@
             0,
             0,
             16,
-            3.5
+            2
           ],
           "texture": "#side_upper",
           "cullface": "west"
@@ -84,6 +85,209 @@
             16
           ],
           "texture": "#ceiling"
+        }
+      }
+    },
+    {
+      "__comment": "крышка: бортик ниши спереди",
+      "from": [
+        0,
+        12.5,
+        0
+      ],
+      "to": [
+        16,
+        14,
+        1.5
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0,
+            2,
+            16,
+            3.5
+          ],
+          "texture": "#side_upper",
+          "cullface": "north"
+        },
+        "east": {
+          "uv": [
+            14.5,
+            2,
+            16,
+            3.5
+          ],
+          "texture": "#side_upper",
+          "cullface": "east"
+        },
+        "west": {
+          "uv": [
+            0,
+            2,
+            1.5,
+            3.5
+          ],
+          "texture": "#side_upper",
+          "cullface": "west"
+        },
+        "down": {
+          "uv": [
+            0,
+            14.5,
+            16,
+            16
+          ],
+          "texture": "#ceiling"
+        },
+        "south": {
+          "uv": [
+            0,
+            0,
+            16,
+            1.5
+          ],
+          "texture": "#well"
+        }
+      }
+    },
+    {
+      "__comment": "крышка: бортик ниши справа",
+      "from": [
+        0,
+        12.5,
+        1.5
+      ],
+      "to": [
+        1.5,
+        14,
+        14.5
+      ],
+      "faces": {
+        "west": {
+          "uv": [
+            1.5,
+            2,
+            14.5,
+            3.5
+          ],
+          "texture": "#side_upper",
+          "cullface": "west"
+        },
+        "down": {
+          "uv": [
+            0,
+            1.5,
+            1.5,
+            14.5
+          ],
+          "texture": "#ceiling"
+        },
+        "east": {
+          "uv": [
+            1.5,
+            0,
+            14.5,
+            1.5
+          ],
+          "texture": "#well"
+        }
+      }
+    },
+    {
+      "__comment": "крышка: бортик ниши слева",
+      "from": [
+        14.5,
+        12.5,
+        1.5
+      ],
+      "to": [
+        16,
+        14,
+        14.5
+      ],
+      "faces": {
+        "east": {
+          "uv": [
+            1.5,
+            2,
+            14.5,
+            3.5
+          ],
+          "texture": "#side_upper",
+          "cullface": "east"
+        },
+        "down": {
+          "uv": [
+            14.5,
+            1.5,
+            16,
+            14.5
+          ],
+          "texture": "#ceiling"
+        },
+        "west": {
+          "uv": [
+            1.5,
+            0,
+            14.5,
+            1.5
+          ],
+          "texture": "#well"
+        }
+      }
+    },
+    {
+      "__comment": "крышка: бортик ниши сзади",
+      "from": [
+        0,
+        12.5,
+        14.5
+      ],
+      "to": [
+        16,
+        14,
+        16
+      ],
+      "faces": {
+        "south": {
+          "uv": [
+            0,
+            2,
+            16,
+            3.5
+          ],
+          "texture": "#back",
+          "cullface": "south"
+        },
+        "east": {
+          "uv": [
+            0,
+            2,
+            1.5,
+            3.5
+          ],
+          "texture": "#side_upper",
+          "cullface": "east"
+        },
+        "west": {
+          "uv": [
+            14.5,
+            2,
+            16,
+            3.5
+          ],
+          "texture": "#side_upper",
+          "cullface": "west"
+        },
+        "north": {
+          "uv": [
+            0,
+            0,
+            16,
+            1.5
+          ],
+          "texture": "#well"
         }
       }
     },
@@ -248,7 +452,236 @@
       }
     },
     {
+      "__comment": "UU в камере: перед",
+      "shade": false,
+      "from": [
+        0.6,
+        0,
+        0.6
+      ],
+      "to": [
+        15.4,
+        12.45,
+        0.6
+      ],
+      "faces": {
+        "north": {
+          "texture": "#uu"
+        }
+      }
+    },
+    {
+      "__comment": "UU в камере: зад",
+      "shade": false,
+      "from": [
+        0.6,
+        0,
+        14.4
+      ],
+      "to": [
+        15.4,
+        12.45,
+        14.4
+      ],
+      "faces": {
+        "south": {
+          "texture": "#uu"
+        }
+      }
+    },
+    {
+      "__comment": "UU в камере: правый бок",
+      "shade": false,
+      "from": [
+        0.6,
+        0,
+        1.5
+      ],
+      "to": [
+        0.6,
+        12.45,
+        14.5
+      ],
+      "faces": {
+        "west": {
+          "texture": "#uu"
+        }
+      }
+    },
+    {
+      "__comment": "UU в камере: левый бок",
+      "shade": false,
+      "from": [
+        15.4,
+        0,
+        1.5
+      ],
+      "to": [
+        15.4,
+        12.45,
+        14.5
+      ],
+      "faces": {
+        "east": {
+          "texture": "#uu"
+        }
+      }
+    },
+    {
+      "__comment": "UU в камере: под бортиком спереди",
+      "shade": false,
+      "from": [
+        0.6,
+        12.45,
+        0.6
+      ],
+      "to": [
+        15.4,
+        12.45,
+        1.6
+      ],
+      "faces": {
+        "up": {
+          "texture": "#uu"
+        }
+      }
+    },
+    {
+      "__comment": "UU в камере: под бортиком справа",
+      "shade": false,
+      "from": [
+        0.6,
+        12.45,
+        1.6
+      ],
+      "to": [
+        1.6,
+        12.45,
+        14.4
+      ],
+      "faces": {
+        "up": {
+          "texture": "#uu"
+        }
+      }
+    },
+    {
+      "__comment": "UU в камере: под бортиком слева",
+      "shade": false,
+      "from": [
+        14.4,
+        12.45,
+        1.6
+      ],
+      "to": [
+        15.4,
+        12.45,
+        14.4
+      ],
+      "faces": {
+        "up": {
+          "texture": "#uu"
+        }
+      }
+    },
+    {
+      "__comment": "UU в нише: перед",
+      "shade": false,
+      "from": [
+        1.6,
+        12.45,
+        1.6
+      ],
+      "to": [
+        14.4,
+        13.95,
+        1.6
+      ],
+      "faces": {
+        "north": {
+          "texture": "#uu"
+        }
+      }
+    },
+    {
+      "__comment": "UU в нише: зад",
+      "shade": false,
+      "from": [
+        1.6,
+        12.45,
+        14.4
+      ],
+      "to": [
+        14.4,
+        13.95,
+        14.4
+      ],
+      "faces": {
+        "south": {
+          "texture": "#uu"
+        }
+      }
+    },
+    {
+      "__comment": "UU в нише: правый бок",
+      "shade": false,
+      "from": [
+        1.6,
+        12.45,
+        1.6
+      ],
+      "to": [
+        1.6,
+        13.95,
+        14.4
+      ],
+      "faces": {
+        "west": {
+          "texture": "#uu"
+        }
+      }
+    },
+    {
+      "__comment": "UU в нише: левый бок",
+      "shade": false,
+      "from": [
+        14.4,
+        12.45,
+        1.6
+      ],
+      "to": [
+        14.4,
+        13.95,
+        14.4
+      ],
+      "faces": {
+        "east": {
+          "texture": "#uu"
+        }
+      }
+    },
+    {
+      "__comment": "UU в нише: верх",
+      "shade": false,
+      "from": [
+        1.6,
+        13.95,
+        1.6
+      ],
+      "to": [
+        14.4,
+        13.95,
+        14.4
+      ],
+      "faces": {
+        "up": {
+          "texture": "#uu"
+        }
+      }
+    },
+    {
       "__comment": "стекло спереди",
+      "shade": false,
       "from": [
         1.5,
         0,
@@ -268,20 +701,12 @@
             16
           ],
           "texture": "#glass_upper"
-        },
-        "south": {
-          "uv": [
-            14.5,
-            3.5,
-            1.5,
-            16
-          ],
-          "texture": "#glass_upper"
         }
       }
     },
     {
       "__comment": "стекло слева",
+      "shade": false,
       "from": [
         15.5,
         0,
@@ -298,15 +723,6 @@
             1.5,
             3.5,
             14.5,
-            16
-          ],
-          "texture": "#glass_upper"
-        },
-        "west": {
-          "uv": [
-            14.5,
-            3.5,
-            1.5,
             16
           ],
           "texture": "#glass_upper"
@@ -315,6 +731,7 @@
     },
     {
       "__comment": "стекло справа",
+      "shade": false,
       "from": [
         0.5,
         0,
@@ -334,125 +751,6 @@
             16
           ],
           "texture": "#glass_upper"
-        },
-        "east": {
-          "uv": [
-            14.5,
-            3.5,
-            1.5,
-            16
-          ],
-          "texture": "#glass_upper"
-        }
-      }
-    },
-    {
-      "__comment": "UU в камере: перед",
-      "shade": false,
-      "from": [
-        0.6,
-        0,
-        0.6
-      ],
-      "to": [
-        15.4,
-        12.45,
-        0.6
-      ],
-      "faces": {
-        "north": {
-          "texture": "#uu"
-        },
-        "south": {
-          "texture": "#uu"
-        }
-      }
-    },
-    {
-      "__comment": "UU в камере: зад",
-      "shade": false,
-      "from": [
-        0.6,
-        0,
-        14.4
-      ],
-      "to": [
-        15.4,
-        12.45,
-        14.4
-      ],
-      "faces": {
-        "north": {
-          "texture": "#uu"
-        },
-        "south": {
-          "texture": "#uu"
-        }
-      }
-    },
-    {
-      "__comment": "UU в камере: правый бок",
-      "shade": false,
-      "from": [
-        0.6,
-        0,
-        0.6
-      ],
-      "to": [
-        0.6,
-        12.45,
-        14.4
-      ],
-      "faces": {
-        "west": {
-          "texture": "#uu"
-        },
-        "east": {
-          "texture": "#uu"
-        }
-      }
-    },
-    {
-      "__comment": "UU в камере: левый бок",
-      "shade": false,
-      "from": [
-        15.4,
-        0,
-        0.6
-      ],
-      "to": [
-        15.4,
-        12.45,
-        14.4
-      ],
-      "faces": {
-        "west": {
-          "texture": "#uu"
-        },
-        "east": {
-          "texture": "#uu"
-        }
-      }
-    },
-    {
-      "__comment": "UU в камере: верх",
-      "shade": false,
-      "from": [
-        0.6,
-        12.45,
-        0.6
-      ],
-      "to": [
-        15.4,
-        12.45,
-        14.4
-      ],
-      "faces": {
-        "up": {
-          "texture": "#uu"
-        },
-        "down": {
-          "texture": "#uu"
         }
       }
     }

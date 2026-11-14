@@ -44,6 +44,7 @@ import net.minecraftforge.fml.relauncher.SideOnly;
 import javax.annotation.Nullable;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 
 /**
@@ -404,6 +405,7 @@ public class TileReplicator extends TileEntity implements ITickable {
             if (getLookLight() == BlockReplicator.Light.ROLLBACK && !isDecaying()
                     && world.getTotalWorldTime() % SHIMMER_TICKS == 0) {
                 playAlarm();
+                debug("client: rollback alarm");
             }
             return;
         }
@@ -434,6 +436,7 @@ public class TileReplicator extends TileEntity implements ITickable {
         alarm();
         updateLook();
         updateGrowth();
+        debugState();
         int signal = comparatorSignal();
         if (signal != lastSignal) {
             lastSignal = signal;
@@ -676,6 +679,7 @@ public class TileReplicator extends TileEntity implements ITickable {
         if (healthFalling && stage >= STAGES && alarmTimer >= ALARM_INTERVAL) {
             alarmTimer = 0;
             world.addBlockEvent(pos, MRContent.replicator, EVENT_ALARM, 0);
+            debug("alarm: clone health falling, " + debugDetails());
         }
     }
 
@@ -715,6 +719,59 @@ public class TileReplicator extends TileEntity implements ITickable {
             return 10 + Math.min(5, getHealthShown() / 4);
         }
         return hasGrowth() ? stage + 1 : 0;
+    }
+
+    // --- отладочный лог (настройка debugLog, Антон 14.11): строки [MR-debug x y z] в логе игры, Claude читает их ---
+
+    /** Не больше стольких строк в секунду с одной машины: скачущее состояние не забьёт лог (остальное — счётом). */
+    private static final int DEBUG_LINES_PER_SECOND = 8;
+    private String debugLastState = "";
+    private long debugSecond = -1;
+    private int debugLines;
+
+    private void debug(String what) {
+        if (!MRConfig.GENERAL.debugLog || world == null) {
+            return;
+        }
+        long time = world.getTotalWorldTime();
+        String where = (world.isRemote ? "client " : "") + pos.getX() + " " + pos.getY() + " " + pos.getZ();
+        if (time / 20 != debugSecond) {
+            if (debugLines > DEBUG_LINES_PER_SECOND) {
+                MatterRebirth.LOG.info("[MR-debug {}] ... {} more lines in that second skipped", where,
+                        debugLines - DEBUG_LINES_PER_SECOND);
+            }
+            debugSecond = time / 20;
+            debugLines = 0;
+        }
+        if (++debugLines <= DEBUG_LINES_PER_SECOND) {
+            MatterRebirth.LOG.info("[MR-debug {} t{}] {}", where, time, what);
+        }
+    }
+
+    /** Состояние машины одной строкой для лога. */
+    private String debugDetails() {
+        return String.format(Locale.ROOT,
+                "stage %d progress %.1f%% paid %.3f tank %d mB EU %.0f/%.0f reserve %s health %.2f decay %d (%.1f mB) refundAcc %.2f oc %d",
+                stage, getStageProgress() * 100, paid, tank.getFluidAmount(), sink.getEnergyStored(), sink.getCapacity(),
+                inventory.getStackInSlot(ReplicatorInventory.RESERVE).isEmpty() ? "none"
+                        : String.format(Locale.ROOT, "%.0f", ElectricItem.manager.getCharge(inventory.getStackInSlot(ReplicatorInventory.RESERVE))),
+                health, decay, decayUu, refundAcc, overclockers());
+    }
+
+    /** Раз в тик (сервер): если сменилось состояние, видимое состояние, стадия, флаги или облик — строка в лог. */
+    private void debugState() {
+        if (!MRConfig.GENERAL.debugLog) {
+            return;
+        }
+        Status shown = shownStatus();
+        String state = status + (shown != status ? " (shown " + shown + ")" : "") + ", stage " + stage
+                + (paused ? ", paused" : "") + (dead ? ", dead" : "") + (decay > 0 ? ", decaying" : "")
+                + (charging ? ", charging" : "") + (repeat ? ", repeat" : "") + ", look " + getLookLight()
+                + (pendingLook >= 0 ? " (pending)" : "") + ", comparator " + comparatorSignal();
+        if (!state.equals(debugLastState)) {
+            debugLastState = state;
+            debug("state " + state + " | " + debugDetails());
+        }
     }
 
     // --- рост ---
@@ -897,6 +954,8 @@ public class TileReplicator extends TileEntity implements ITickable {
         dead = true;
         status = Status.DEAD;
         sync();
+        debug(String.format(Locale.ROOT, "clone died: decay starts, %.1f mB will return over %d ticks, repeat %s",
+                decayUu, DECAY_TICKS, repeat));
     }
 
     /** Один тик распада: равная доля оставшейся UU уходит в бак; в конце с «растить заново» рост начинается сам. */
@@ -914,11 +973,13 @@ public class TileReplicator extends TileEntity implements ITickable {
             paused = false;
         }
         sync();
+        debug("decay finished, tank now " + tank.getFluidAmount() + " mB" + (repeat ? ", repeat: growth restarts" : ""));
     }
 
     /** Распад прерван (новый рост, корзина, смена шаблона): остаток его UU приходит в бак сразу. */
     private void finishDecay() {
         if (decay > 0 || decayUu > 0) {
+            debug(String.format(Locale.ROOT, "decay interrupted at %d ticks left: rest %.1f mB returned at once", decay, decayUu));
             returnUu(decayUu);
             decayUu = 0;
             decay = 0;
@@ -999,6 +1060,7 @@ public class TileReplicator extends TileEntity implements ITickable {
         int debt = debt();
         if (debt > 0) {
             tank.drain(debt, true);
+            debug("stage " + (stage + 1) + " paid: " + debt + " mB taken from tank, tank now " + tank.getFluidAmount() + " mB");
         }
         if (paid < 1) {
             paid = 1;
@@ -1023,6 +1085,7 @@ public class TileReplicator extends TileEntity implements ITickable {
                 health = MAX_HEALTH; // готовый клон здоров; первый 1 mB на жизнь берётся следующим тиком
                 lifeUu = 0;
             }
+            debug(stage >= STAGES ? "clone ready" : "stage " + stage + " grown, next stage " + (stage + 1));
             sync(); // новая стадия на клиент (окно, позже модель)
         } else {
             markSaveDirty();
@@ -1079,7 +1142,10 @@ public class TileReplicator extends TileEntity implements ITickable {
             }
             progress = 0;
         }
-        refund((int) Math.floor(paid * cost + EPS));
+        int unspent = (int) Math.floor(paid * cost + EPS);
+        refund(unspent);
+        debug("rollback: stage " + (stage + 1) + " removed to zero, unspent " + unspent + " mB returned, tank now "
+                + tank.getFluidAmount() + " mB" + (stage > 0 ? ", rolling back stage " + stage : ", chamber empty"));
         paid = 0;
         if (stage > 0) {
             stage--;
@@ -1205,6 +1271,9 @@ public class TileReplicator extends TileEntity implements ITickable {
     public void onLoad() {
         if (world != null && !world.isRemote && stage < STAGES && progress <= EPS && paid <= EPS) {
             takeStageValues();
+        }
+        if (world != null && !world.isRemote) {
+            debug("loaded: status " + status + ", " + debugDetails());
         }
     }
 
@@ -1448,8 +1517,10 @@ public class TileReplicator extends TileEntity implements ITickable {
     /** Нажатие кнопки в окне (на сервере). Неизвестные номера и нажатия без заряда ничего не делают. */
     public void onButton(int id) {
         if (!isPowered()) {
+            debug("button " + id + " ignored: no power");
             return;
         }
+        debug("button " + id + ", status " + status);
         if (id == BUTTON_PREV || id == BUTTON_NEXT) {
             cyclePattern(id == BUTTON_NEXT ? 1 : -1);
         } else if (id == BUTTON_TRASH) {
@@ -1520,6 +1591,7 @@ public class TileReplicator extends TileEntity implements ITickable {
             return;
         }
         int back = resetUu();
+        debug("trash: " + back + " mB returned (tank was " + tank.getFluidAmount() + " mB), " + debugDetails());
         stage = 0;
         progress = 0;
         paid = 0;
@@ -1562,6 +1634,7 @@ public class TileReplicator extends TileEntity implements ITickable {
         ItemStack chosen = ItemBloodSample.cleanCopy(list.get(next));
         if (!ItemStack.areItemStacksEqual(chosen, pattern)) {
             pattern = chosen;
+            debug("pattern changed (" + list.size() + " patterns available)");
             finishDecay(); // смена шаблона во время распада: остаток UU сразу
             dead = false;
             // выбранный шаблон ждёт на паузе: стрелками можно спокойно долистать до нужного, рост (и списание UU)

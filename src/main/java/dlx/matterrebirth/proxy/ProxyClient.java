@@ -52,7 +52,7 @@ public class ProxyClient extends Proxy {
      */
     @Override
     public void tickBubbles(World world, BlockPos pos, List<float[]> bubbles, boolean spawn) {
-        float top = 1 + 12.5F / 16 - 0.05F; // под излучателем
+        float top = 1 + 14F / 16 - 0.05F; // под излучателем в нише крышки
         for (Iterator<float[]> it = bubbles.iterator(); it.hasNext(); ) {
             float[] b = it.next();
             b[3] = b[0];
@@ -80,7 +80,7 @@ public class ProxyClient extends Proxy {
         }
         double a = world.rand.nextDouble() * Math.PI * 2;
         double r = Math.sqrt(world.rand.nextDouble()) * 0.2; // по кругу площадки, равномерно
-        float x = (float) (0.5 + Math.cos(a) * r), z = (float) (0.5 + Math.sin(a) * r), y = 5 / 16F + 0.02F;
+        float x = (float) (0.5 + Math.cos(a) * r), z = (float) (0.5 + Math.sin(a) * r), y = 2 / 16F + 0.02F; // со дна колодца
         float size = 0.025F + world.rand.nextFloat() * 0.025F; // половина стороны, блоки (поперёк 0,8–1,6 пикселя блока)
         bubbles.add(new float[]{x, y, z, x, y, z, 0, 0.01F + world.rand.nextFloat() * 0.01F, 0, size, 0});
     }
@@ -92,7 +92,8 @@ public class ProxyClient extends Proxy {
     @SubscribeEvent
     public static void onTextureStitch(TextureStitchEvent.Pre event) {
         if ("textures".equals(event.getMap().getBasePath())) {
-            event.getMap().setTextureEntry(new UuChamberSprite());
+            event.getMap().setTextureEntry(new UuChamberSprite(UuChamberSprite.LOWER, "replicator_glass_lower"));
+            event.getMap().setTextureEntry(new UuChamberSprite(UuChamberSprite.UPPER, "replicator_glass_upper"));
             event.getMap().setTextureEntry(new ShimmerSprite(ShimmerSprite.FLOOR));
             event.getMap().setTextureEntry(new ShimmerSprite(ShimmerSprite.CEILING));
         }
