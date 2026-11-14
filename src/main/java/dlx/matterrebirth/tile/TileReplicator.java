@@ -14,7 +14,6 @@ import ic2.api.item.ElectricItem;
 import ic2.api.recipe.IPatternStorage;
 import net.minecraft.block.state.IBlockState;
 import net.minecraft.entity.player.EntityPlayer;
-import net.minecraft.init.Items;
 import net.minecraft.inventory.InventoryHelper;
 import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NBTTagCompound;
@@ -56,11 +55,13 @@ import java.util.UUID;
  * из кристалла; излишек сети сверх полного запаса идёт в кристалл (ReplicatorSink). Кристалл питает всё, включая рост.
  * Бак жидкой UU на 16 вёдер, как у репликатора IC2: наполняется из капсул в слоте и через порты трубами
  * (трубы могут и откачивать). Автоматика работает со слотами только через порты (ReplicatorAutomation).
- * С выталкивателем IC2 машина сама выталкивает пустые капсулы и плоть в соседние хранилища через порты.
+ * С выталкивателем IC2 машина сама выталкивает пустые капсулы в соседние хранилища через порты.
  * Рост клона (этап 4б, решения Антона 07.11): пять стадий снизу вверх; стадия стартует, только когда в баке есть
  * вся её UU, и забирает её сразу; без энергии выращенное откатывается (подробности у tickGrowth).
  * Поддержание готового клона (этап 4в, решения Антона 08.11): жизнь стоит 1 mB UU в игровой день и 16 EU/t; без UU
- * или без энергии клон теряет здоровье, с питанием восстанавливает (подробности у tickUpkeep). Гибель даёт 5 плоти.
+ * или без энергии клон теряет здоровье, с питанием восстанавливает (подробности у tickUpkeep).
+ * Материя вместо плоти (5г, Антон 09.11): погибший клон распадается, откат и корзина снимают выращенное — в бак
+ * возвращается 1/4 UU выращенного (REFUND_SHARE); гнилой плоти нет.
  */
 public class TileReplicator extends TileEntity implements ITickable {
 
@@ -213,10 +214,17 @@ public class TileReplicator extends TileEntity implements ITickable {
     public static int pipeKeepMb() {
         return PIPE_KEEP_DAYS * lifeUuPerDay;
     }
-    /** Гибель клона: гнилая плоть. */
-    public static final int DEATH_FLESH = 5;
+    /** Доля UU выращенного, которую гибель, откат и корзина возвращают в бак (Антон 09.11: вместо гнилой плоти). */
+    public static final double REFUND_SHARE = 0.25;
+    /** Распад погибшего клона сверху вниз, тики (около минуты, Антон 09.11). */
+    public static final int DECAY_TICKS = 1200;
     /** Тревожный сигнал, пока здоровье падает: раз в 3 секунды. */
     private static final int ALARM_INTERVAL = 60;
+    /**
+     * Период перелива отката и распада красный ↔ фиолетовый, тики (Антон 14.11); равен периоду тревоги: тревога отката
+     * звучит на красном пике (тик мира кратен периоду), см. client/Shimmer.
+     */
+    public static final int SHIMMER_TICKS = ALARM_INTERVAL;
     /** Номер события блока «тревога» (сервер → клиенты рядом). */
     public static final int EVENT_ALARM = 1;
 
@@ -237,8 +245,12 @@ public class TileReplicator extends TileEntity implements ITickable {
      * и столько же «оплаты». Пока доля меньше 1, это долг: перед ростом машина добирает его из бака.
      */
     private double paid;
-    /** Текущая стадия была выращена целиком и сейчас откатывается: снятая целиком, она даст плоть. */
-    private boolean rollingFull;
+    /** Дробная часть возвращаемой UU, mB (0..1): откат и распад отдают UU в бак целыми mB, остаток копится здесь. */
+    private double refundAcc;
+    /** Распад погибшего клона: сколько тиков осталось (0 — не распадается). Клиент между пакетами считает сам. */
+    private int decay;
+    /** UU распада, ещё не пришедшая в бак, mB. */
+    private double decayUu;
     // считаются каждый тик, не сохраняются
     private Status status = Status.IDLE;
     private int uuShort;
@@ -251,11 +263,21 @@ public class TileReplicator extends TileEntity implements ITickable {
      * кончился — берёт следующий; в баке пусто — голодает.
      */
     private double lifeUu;
-    /** Клон погиб, «растить заново» выключено: экран пишет «Клон погиб», пока плоть не забрали или не начат новый рост. */
+    /**
+     * Клон погиб: экран пишет «Клон погиб», кольца красные, компаратор 9. Держится до «Начать рост», корзины или смены
+     * шаблона (Антон 09.11); с «растить заново» снимается сам в конце распада.
+     */
     private boolean dead;
     // не сохраняются: здоровье падает (для тревоги), счётчик тревоги, последний сигнал компаратора
     private boolean healthFalling;
-    private int alarmTimer;
+    /** Тиков с последней тревоги (до ALARM_INTERVAL): тревога не чаще раза в 3 секунды, даже если питание скачет. */
+    private int alarmTimer = ALARM_INTERVAL;
+    /**
+     * Готовый клон голодал меньше ROLLBACK_SHOW тиков назад (14.11): на границе питания «Готов» может чередоваться
+     * с «Нет энергии» / «Нужно UU» через тик — окно и кольца всё это время показывают беду (starveStatus).
+     */
+    private int starveShown;
+    private Status starveStatus = Status.NEED_UU;
     private int lastSignal = -1;
 
     /** Растить заново после каждого воскрешения (иначе один раз). */
@@ -270,11 +292,22 @@ public class TileReplicator extends TileEntity implements ITickable {
      * клиентам только устоявшийся (LOOK_DELAY тиков без изменений): мигание состояния на границе не дёргает
      * перерисовку и свет. Упаковано в одно число: биты 0–2 цвет колец (BlockReplicator.Light), 3 — UU в баке,
      * 4 — есть энергия, 5–7 стадия 0..5, 8–12 здоровье 0..20. -1 — ещё не посчитан (всё погашено).
+     * Если облик не устаивается дольше LOOK_MAX_WAIT тиков (состояние скачет), уходит последний: иначе кольца и срез
+     * застревали в старом цвете (проверка Антона 14.11: откат после «Нужно UU» — кольца и срез оставались жёлтыми).
      */
     private static final int LOOK_DELAY = 10;
+    private static final int LOOK_MAX_WAIT = 40;
     private int look = -1;
     private int pendingLook = -1;
     private int pendingTicks;
+    /** Тиков подряд, как посчитанный облик отличается от отправленного. */
+    private int divergedTicks;
+    /**
+     * Откат был меньше ROLLBACK_SHOW тиков назад (14.11): на границе питания откат может чередоваться с «Нужно UU»,
+     * паузой или «Диапаузой» через тик — окно, кольца и лампочки всё это время показывают откат (см. shownStatus).
+     */
+    private static final int ROLLBACK_SHOW = 20;
+    private int rollbackShown;
     /** Пузырьки в камере (только клиент): двигает ProxyClient.tickBubbles, рисует RenderReplicator. */
     private final List<float[]> bubbles = new ArrayList<>();
 
@@ -364,15 +397,30 @@ public class TileReplicator extends TileEntity implements ITickable {
             // пузырьки от площадки, пока идёт рост и в баке есть UU (идея Антона 08.11); всплывшие доживают и без роста
             MatterRebirth.proxy.tickBubbles(world, pos, bubbles, getLookLight() == BlockReplicator.Light.GROW && getLookUu());
             tickShownGrowth();
+            if (decay > 0) {
+                decay--; // распад на клиенте идёт сам, пакет приходит только в начале и в конце
+            }
+            // тревога отката — на красном пике перелива (Антон 14.11); у распада тревоги нет: клон уже погиб
+            if (getLookLight() == BlockReplicator.Light.ROLLBACK && !isDecaying()
+                    && world.getTotalWorldTime() % SHIMMER_TICKS == 0) {
+                playAlarm();
+            }
             return;
         }
         if (!chunkTicketChecked) {
             chunkTicketChecked = true;
             // после перезахода билет уже восстановлен Forge (ReplicatorChunks.ticketsLoaded), тогда ничего не делается
             ReplicatorChunks.ensure(world, pos, ownerId);
+            migrateSlots();
         }
         // TODO(релиз): ОТЛАДКА — убрать цикл перед выпуском (Антон 07.11). Сеть даёт вход раз в тик, поэтому в ускоренных
         // повторах рост и удержание идут из запаса и кристалла: запас тает в N раз быстрее
+        if (rollbackShown > 0) {
+            rollbackShown--;
+        }
+        if (starveShown > 0) {
+            starveShown--;
+        }
         int speed = Math.max(1, MRConfig.GENERAL.debugReplicatorSpeed);
         for (int i = 0; i < speed; i++) {
             topUpFromReserve();
@@ -383,11 +431,6 @@ public class TileReplicator extends TileEntity implements ITickable {
             topUpFromReserve();
         }
         eject();
-        // «Клон погиб» держится, пока гнилую плоть не забрали из слота (Антон 08.11)
-        if (dead && inventory.getStackInSlot(ReplicatorInventory.FLESH).isEmpty()) {
-            dead = false;
-            sync();
-        }
         alarm();
         updateLook();
         updateGrowth();
@@ -442,12 +485,13 @@ public class TileReplicator extends TileEntity implements ITickable {
 
     /**
      * Цвет колец по состоянию (список Антона 08.11): рост — бирюзовый; нужно UU, диапауза, мало EU — жёлтый;
-     * откат, перегрузка, клон теряет здоровье (без UU или без энергии), клон погиб — красный; клон готов и здоров —
-     * зелёный; пауза и пустая машина — белый. Погасшие кольца — только когда в запасе нет энергии.
+     * откат и распад погибшего клона — перелив красный ↔ фиолетовый (Антон 14.11); перегрузка, клон теряет здоровье
+     * (без UU или без энергии), клон погиб (после распада) — красный; клон готов и здоров — зелёный; пауза и пустая
+     * машина — белый. Погасшие кольца — только когда в запасе нет энергии.
      */
     private BlockReplicator.Light computeLight() {
         boolean ready = stage >= STAGES;
-        switch (status) {
+        switch (shownStatus()) {
             case GROWING:
                 return BlockReplicator.Light.GROW;
             case READY:
@@ -458,8 +502,10 @@ public class TileReplicator extends TileEntity implements ITickable {
             case LOW_POWER:
                 return BlockReplicator.Light.WAIT;
             case ROLLBACK:
-            case OVERLOAD:
+                return BlockReplicator.Light.ROLLBACK;
             case DEAD:
+                return decay > 0 ? BlockReplicator.Light.ROLLBACK : BlockReplicator.Light.ALERT;
+            case OVERLOAD:
                 return BlockReplicator.Light.ALERT;
             case NO_POWER:
                 // готовый клон без энергии теряет здоровье — тревога; пустая камера без энергии — всё погасло
@@ -477,17 +523,18 @@ public class TileReplicator extends TileEntity implements ITickable {
      */
     private int euLamp() {
         boolean ready = stage >= STAGES;
-        if (status == Status.ROLLBACK || status == Status.OVERLOAD || ready && status == Status.NO_POWER) {
+        Status s = shownStatus();
+        if (s == Status.ROLLBACK || s == Status.OVERLOAD || ready && s == Status.NO_POWER) {
             return 3;
         }
         if (sink.getEnergyStored() < 1) {
             return 0;
         }
-        return status == Status.CHARGING || status == Status.LOW_POWER ? 2 : 1;
+        return s == Status.CHARGING || s == Status.LOW_POWER ? 2 : 1;
     }
 
     private int uuLamp() {
-        if (status == Status.NEED_UU) {
+        if (shownStatus() == Status.NEED_UU) {
             return 3;
         }
         return tank.getFluidAmount() > 0 ? 1 : 0;
@@ -496,7 +543,8 @@ public class TileReplicator extends TileEntity implements ITickable {
     /**
      * Облик для клиентов одним числом: биты 0–2 цвет колец, 3 есть UU, 4 есть энергия, 5–7 выращенных стадий,
      * 8–12 здоровье готового клона, 13–14 и 15–16 лампочки EU и UU (euLamp, uuLamp), 17 — есть текущая стадия
-     * (шаблон выбран, рост начат, клон не готов и не погиб): её деление на экранчике горит цветом колец.
+     * (шаблон выбран, рост начат, клон не готов и не погиб): её деление на экранчике горит цветом колец;
+     * 18 — откат (срез клона переливается, 5г), 19 — в слоте стоит якорь (планки экранчика).
      */
     private int computeLook() {
         int l = computeLight().ordinal();
@@ -516,6 +564,12 @@ public class TileReplicator extends TileEntity implements ITickable {
         if (!pattern.isEmpty() && stage < STAGES && !dead && (hasGrowth() || !paused)) {
             l |= 1 << 17;
         }
+        if (shownStatus() == Status.ROLLBACK) {
+            l |= 1 << 18;
+        }
+        if (!inventory.getStackInSlot(ReplicatorInventory.ANCHOR).isEmpty()) {
+            l |= 1 << 19;
+        }
         return l;
     }
 
@@ -525,19 +579,22 @@ public class TileReplicator extends TileEntity implements ITickable {
         if (now == look) {
             pendingLook = -1;
             pendingTicks = 0;
+            divergedTicks = 0;
             return;
         }
         if (now != pendingLook) {
             pendingLook = now;
             pendingTicks = 0;
         }
-        if (look >= 0 && ++pendingTicks < LOOK_DELAY) {
+        divergedTicks++;
+        if (look >= 0 && ++pendingTicks < LOOK_DELAY && divergedTicks < LOOK_MAX_WAIT) {
             return;
         }
         int old = look;
         look = now;
         pendingLook = -1;
         pendingTicks = 0;
+        divergedTicks = 0;
         sync();
         if (isLit(old) != isLit(now)) {
             world.checkLight(pos);
@@ -586,6 +643,16 @@ public class TileReplicator extends TileEntity implements ITickable {
         return look >= 0 && (look & (1 << 17)) != 0;
     }
 
+    /** Идёт откат: срез клона переливается красным и фиолетовым. */
+    public boolean getLookRollback() {
+        return look >= 0 && (look & (1 << 18)) != 0;
+    }
+
+    /** В слоте якоря стоит якорь. */
+    public boolean getLookAnchor() {
+        return look >= 0 && (look & (1 << 19)) != 0;
+    }
+
     public List<float[]> getBubbles() {
         return bubbles;
     }
@@ -597,13 +664,16 @@ public class TileReplicator extends TileEntity implements ITickable {
         return new AxisAlignedBB(pos, pos.add(1, 2, 1));
     }
 
-    /** Пока здоровье клона падает, раз в 3 секунды тревожный сигнал IC2 у машины (первый — сразу). */
+    /**
+     * Пока здоровье клона падает, раз в 3 секунды тревожный сигнал IC2 у машины (первый — сразу, если тревоги не было
+     * последние 3 секунды). Счётчик идёт всегда: при скачущем питании (сыт / голоден через тик) тревога не звучит
+     * чаще (правка 14.11: раньше каждое возвращение голода давало сигнал сразу).
+     */
     private void alarm() {
-        if (!healthFalling || stage < STAGES) {
-            alarmTimer = ALARM_INTERVAL;
-            return;
+        if (alarmTimer < ALARM_INTERVAL) {
+            alarmTimer++;
         }
-        if (++alarmTimer >= ALARM_INTERVAL) {
+        if (healthFalling && stage >= STAGES && alarmTimer >= ALARM_INTERVAL) {
             alarmTimer = 0;
             world.addBlockEvent(pos, MRContent.replicator, EVENT_ALARM, 0);
         }
@@ -619,10 +689,15 @@ public class TileReplicator extends TileEntity implements ITickable {
             return super.receiveClientEvent(id, type);
         }
         if (world != null && world.isRemote) {
-            ic2.core.IC2.audioManager.playOnce(this, ic2.core.audio.PositionSpec.Center, "Machines/InterruptOne.ogg", true,
-                    ic2.core.IC2.audioManager.getDefaultVolume());
+            playAlarm();
         }
         return true;
+    }
+
+    /** Тревога у машины (только на клиенте): звук остановки машин IC2 через звуковую систему IC2. */
+    private void playAlarm() {
+        ic2.core.IC2.audioManager.playOnce(this, ic2.core.audio.PositionSpec.Center, "Machines/InterruptOne.ogg", true,
+                ic2.core.IC2.audioManager.getDefaultVolume());
     }
 
     /**
@@ -668,6 +743,12 @@ public class TileReplicator extends TileEntity implements ITickable {
         if (stage >= STAGES) {
             charging = false; // клон готов: «растить заново» начнёт с обычного правила половины
             tickUpkeep(in);
+            return;
+        }
+        if (decay > 0) {
+            storeInput(in); // распаду энергия не нужна
+            status = Status.DEAD;
+            tickDecay();
             return;
         }
         if (dead) {
@@ -779,6 +860,10 @@ public class TileReplicator extends TileEntity implements ITickable {
             status = Status.NO_POWER;
         }
         healthFalling = !fed;
+        if (!fed) {
+            starveShown = ROLLBACK_SHOW;
+            starveStatus = status;
+        }
         health = fed ? Math.min(MAX_HEALTH, health + HEALTH_PER_TICK) : Math.max(0, health - HEALTH_PER_TICK);
         if (health <= EPS) {
             die();
@@ -788,24 +873,66 @@ public class TileReplicator extends TileEntity implements ITickable {
     }
 
     /**
-     * Гибель клона: 5 гнилой плоти, камера пуста, шаблон остаётся. С «растить заново» рост сразу начинается сначала,
-     * без него — «Клон погиб» и пауза, пока игрок не начнёт рост сам (Антон 08.11).
+     * Гибель клона (5г, Антон 09.11): тело около минуты распадается сверху вниз, 1/4 UU всех пяти стадий (по их ценам)
+     * за это время приходит в бак; шаблон остаётся. Рост стоит на паузе: «Начать рост» прерывает распад (остаток UU
+     * приходит сразу) и начинает рост. С «растить заново» рост начинается сам в конце распада; без него «Клон погиб»
+     * держится и после распада, пока игрок не начнёт рост, не нажмёт корзину или не сменит шаблон.
      */
     private void die() {
-        giveFlesh(DEATH_FLESH);
+        double grown = 0;
+        for (int i = 0; i < STAGES; i++) {
+            grown += costs[i]; // до takeStageValues: она перепишет цену первой стадии
+        }
         stage = 0;
         progress = 0;
         paid = 0;
         takeStageValues();
-        rollingFull = false;
         charging = false;
         health = 0;
         lifeUu = 0;
         healthFalling = false;
-        paused = !repeat;
-        dead = !repeat && !inventory.getStackInSlot(ReplicatorInventory.FLESH).isEmpty();
-        status = dead ? Status.DEAD : Status.IDLE;
+        decay = DECAY_TICKS;
+        decayUu = grown * REFUND_SHARE;
+        paused = true;
+        dead = true;
+        status = Status.DEAD;
         sync();
+    }
+
+    /** Один тик распада: равная доля оставшейся UU уходит в бак; в конце с «растить заново» рост начинается сам. */
+    private void tickDecay() {
+        double part = decayUu / decay;
+        decay--;
+        decayUu = decay > 0 ? Math.max(0, decayUu - part) : 0;
+        returnUu(part);
+        if (decay > 0) {
+            markSaveDirty();
+            return;
+        }
+        if (repeat) {
+            dead = false;
+            paused = false;
+        }
+        sync();
+    }
+
+    /** Распад прерван (новый рост, корзина, смена шаблона): остаток его UU приходит в бак сразу. */
+    private void finishDecay() {
+        if (decay > 0 || decayUu > 0) {
+            returnUu(decayUu);
+            decayUu = 0;
+            decay = 0;
+        }
+    }
+
+    /** Погибший клон ещё распадается (на клиенте — для отрисовки). */
+    public boolean isDecaying() {
+        return decay > 0;
+    }
+
+    /** Сколько тела ещё не распалось, 0..1 (между тиками — плавно). */
+    public float getDecayLeft(float partialTicks) {
+        return decay <= 0 ? 0 : Math.max(0, Math.min(1, (decay - partialTicks) / DECAY_TICKS));
     }
 
     /** Здоровье клона для экрана и компаратора: целое, вверх (0 только у погибшего). */
@@ -890,7 +1017,6 @@ public class TileReplicator extends TileEntity implements ITickable {
             stage++;
             progress = 0;
             paid = 0;
-            rollingFull = false;
             takeStageValues();
             if (stage >= STAGES) {
                 status = Status.READY;
@@ -935,25 +1061,23 @@ public class TileReplicator extends TileEntity implements ITickable {
 
     /**
      * Откат без энергии, вдвое медленнее роста: снимается прогресс и столько же «оплаты» (потом это долг).
-     * Текущая стадия дошла до нуля — неизрасходованная UU, взятая ею под ещё не выращенную часть, возвращается в бак,
-     * и откат идёт в предыдущую, выращенную целиком стадию. Стадия, выращенная целиком и снятая до нуля, даёт 1 гнилую плоть;
-     * частично выращенная — ничего.
+     * Снятое постепенно возвращает в бак 1/4 своей UU (5г, Антон 09.11; по цене этой стадии у этого клона).
+     * Текущая стадия дошла до нуля — неизрасходованная UU, взятая ею под ещё не выращенную часть, возвращается в бак
+     * целиком, и откат идёт в предыдущую, выращенную целиком стадию.
      */
     private void rollback() {
+        rollbackShown = ROLLBACK_SHOW;
         int cost = stageCost();
         if (progress > EPS) {
             double lost = Math.min(ROLLBACK_SPEED, progress);
             progress -= lost;
             paid = Math.max(0, paid - lost / stageTotal());
+            returnUu(lost / stageTotal() * cost * REFUND_SHARE);
             if (progress > EPS) {
                 markSaveDirty();
                 return;
             }
             progress = 0;
-            if (rollingFull) {
-                rollingFull = false;
-                giveFlesh(1);
-            }
         }
         refund((int) Math.floor(paid * cost + EPS));
         paid = 0;
@@ -961,7 +1085,6 @@ public class TileReplicator extends TileEntity implements ITickable {
             stage--;
             progress = stageTotal(); // выращенная стадия снимается по своим числам
             paid = 1;
-            rollingFull = true;
         }
         sync();
     }
@@ -1016,14 +1139,53 @@ public class TileReplicator extends TileEntity implements ITickable {
         return n;
     }
 
-    /** Гнилая плоть в свой слот; не влезла — падает рядом, не пропадает. */
-    private void giveFlesh(int count) {
-        if (count <= 0) {
+    /** Вернуть в бак дробное количество UU: целые mB — сразу, дробная часть копится до следующего раза. */
+    private void returnUu(double mb) {
+        if (mb <= 0) {
             return;
         }
-        ItemStack rest = inventory.insertInternal(ReplicatorInventory.FLESH, new ItemStack(Items.ROTTEN_FLESH, count), false);
-        if (!rest.isEmpty()) {
-            InventoryHelper.spawnItemStack(world, pos.getX() + 0.5, pos.getY() + 1.0, pos.getZ() + 0.5, rest);
+        refundAcc += mb;
+        int whole = (int) Math.floor(refundAcc + EPS);
+        if (whole > 0) {
+            refund(whole);
+            refundAcc = Math.max(0, refundAcc - whole);
+        }
+    }
+
+    /**
+     * Мир до 5г: в слоте 2 могла лежать гнилая плоть (теперь это слот якоря), а якорь — в слотах улучшений.
+     * Чужое и лишнее из слота якоря выпадает рядом; первый якорь из слотов улучшений переходит в свой слот,
+     * остальные выпадают. Ничего не пропадает.
+     */
+    private void migrateSlots() {
+        ItemStack held = inventory.getStackInSlot(ReplicatorInventory.ANCHOR);
+        if (!held.isEmpty() && (!ReplicatorInventory.isAnchor(held) || held.getCount() > 1)) {
+            ItemStack drop = held.copy();
+            ItemStack keep = ItemStack.EMPTY;
+            if (ReplicatorInventory.isAnchor(held)) {
+                keep = drop.splitStack(1);
+            }
+            inventory.setStackInSlot(ReplicatorInventory.ANCHOR, keep);
+            spawnNear(drop);
+        }
+        for (int i = 0; i < ReplicatorInventory.UPGRADE_COUNT; i++) {
+            int slot = ReplicatorInventory.UPGRADE_FIRST + i;
+            ItemStack stack = inventory.getStackInSlot(slot);
+            if (!ReplicatorInventory.isAnchor(stack)) {
+                continue;
+            }
+            ItemStack rest = stack.copy();
+            inventory.setStackInSlot(slot, ItemStack.EMPTY);
+            if (inventory.getStackInSlot(ReplicatorInventory.ANCHOR).isEmpty()) {
+                inventory.setStackInSlot(ReplicatorInventory.ANCHOR, rest.splitStack(1));
+            }
+            spawnNear(rest);
+        }
+    }
+
+    private void spawnNear(ItemStack stack) {
+        if (!stack.isEmpty()) {
+            InventoryHelper.spawnItemStack(world, pos.getX() + 0.5, pos.getY() + 1.0, pos.getZ() + 0.5, stack);
         }
     }
 
@@ -1055,7 +1217,24 @@ public class TileReplicator extends TileEntity implements ITickable {
         return stage >= STAGES ? 1 : progress / stageTotal();
     }
 
+    /** Состояние для окна (как его видит игрок, см. shownStatus). */
     public Status getStatus() {
+        return shownStatus();
+    }
+
+    /**
+     * Состояние, которое видит игрок: недавний откат (ROLLBACK_SHOW) перекрывает чередующиеся с ним состояния, пока
+     * в камере есть выращенное; рост и погибший клон показываются как есть. Готовый клон, голодавший меньше секунды
+     * назад, показывается голодным (starveStatus). Логика машины читает status.
+     */
+    private Status shownStatus() {
+        if (starveShown > 0 && status == Status.READY && stage >= STAGES) {
+            return starveStatus;
+        }
+        if (rollbackShown > 0 && status != Status.ROLLBACK && status != Status.GROWING && status != Status.DEAD
+                && stage < STAGES && !dead && hasGrowth()) {
+            return Status.ROLLBACK;
+        }
         return status;
     }
 
@@ -1150,7 +1329,7 @@ public class TileReplicator extends TileEntity implements ITickable {
         }
     }
 
-    /** Выталкиватель IC2: пустые капсулы и плоть уходят в соседние хранилища через порты. */
+    /** Выталкиватель IC2: пустые капсулы уходят в соседние хранилища через порты. */
     private void eject() {
         IBlockState state = world.getBlockState(pos);
         if (state.getBlock() != MRContent.replicator) {
@@ -1178,7 +1357,6 @@ public class TileReplicator extends TileEntity implements ITickable {
         EnumFacing back = state.getValue(BlockReplicator.FACING).getOpposite();
         BlockPos upper = pos.up();
         ejectSlot(ReplicatorInventory.CELL_OUT, allowed, back, upper);
-        ejectSlot(ReplicatorInventory.FLESH, allowed, back, upper);
     }
 
     private void ejectSlot(int slot, boolean[] allowed, EnumFacing back, BlockPos upper) {
@@ -1280,6 +1458,7 @@ public class TileReplicator extends TileEntity implements ITickable {
             if (canPause()) {
                 paused = !paused;
                 if (!paused) {
+                    finishDecay(); // «Начать рост» во время распада: остаток UU сразу, рост начинается
                     dead = false; // начат новый рост
                 }
                 sync();
@@ -1308,37 +1487,47 @@ public class TileReplicator extends TileEntity implements ITickable {
         return !pattern.isEmpty();
     }
 
-    /** Сколько гнилой плоти даст корзина сейчас: по 1 за стадию, выращенную целиком (у готового клона — все 5). */
-    public int resetFlesh() {
-        // стадия, в которую откат перешёл, считается целой, только пока откат её ещё не тронул; частично снятая плоти
-        // не даёт, как и при откате (Антон 07.11: иначе стадия «состояла бы из 2 плотей»)
-        boolean wholeRolling = rollingFull && stage < STAGES && progress >= stageTotal() - EPS;
-        return Math.min(STAGES, stage + (wholeRolling ? 1 : 0));
+    /**
+     * Сколько UU корзина вернёт в бак сейчас, mB (подтверждение корзины показывает это число): неизрасходованная UU
+     * текущей стадии (взятая под ещё не выращенную часть) — целиком, выращенное — 1/4 по ценам своих стадий,
+     * плюс остаток распада. Не больше свободного места в баке: излишек пропал бы.
+     */
+    public int resetUu() {
+        double back = refundAcc + decayUu;
+        int unbuilt = 0;
+        if (hasGrowth()) {
+            for (int i = 0; i < Math.min(stage, STAGES); i++) {
+                back += costs[i] * REFUND_SHARE;
+            }
+            if (stage < STAGES) {
+                double built = progress / stageTotal();
+                back += built * stageCost() * REFUND_SHARE;
+                // вверх: за первые доли секунды роста стадия не теряет 1 mB (проверка Антона 07.11: 999 из 1000);
+                // больше заплаченного вернуть нельзя — unbuilt ≤ paid ≤ 1, корзина разовая
+                unbuilt = (int) Math.ceil(Math.max(0, paid - built) * stageCost() - EPS);
+            }
+        }
+        int total = unbuilt + (int) Math.floor(back + EPS);
+        return Math.max(0, Math.min(total, tank.getCapacity() - tank.getFluidAmount()));
     }
 
     /**
-     * Корзина: убрать шаблон и выращенное. Стадии, выращенные целиком, уходят в гнилую плоть (по 1 за стадию,
-     * как при откате); неизрасходованная UU текущей стадии (взятая под ещё не выращенную часть) возвращается в бак.
+     * Корзина: убрать шаблон и выращенное. В бак сразу возвращается resetUu() (распад, если идёт, кончается).
      * Пауза снимается вместе с ростом, «растить заново» — настройка, остаётся.
      */
     private void reset() {
         if (!canReset()) {
             return;
         }
-        if (hasGrowth()) {
-            if (stage < STAGES) {
-                double unbuilt = paid - progress / stageTotal();
-                // вверх: за первые доли секунды роста стадия не теряет 1 mB (проверка Антона 07.11: 999 из 1000);
-                // больше заплаченного вернуть нельзя — unbuilt ≤ paid ≤ 1, корзина разовая
-                refund((int) Math.ceil(Math.max(0, unbuilt) * stageCost() - EPS));
-            }
-            giveFlesh(resetFlesh());
-        }
+        int back = resetUu();
         stage = 0;
         progress = 0;
         paid = 0;
         takeStageValues();
-        rollingFull = false;
+        refundAcc = 0;
+        decay = 0;
+        decayUu = 0;
+        refund(back);
         paused = false;
         charging = false;
         health = 0;
@@ -1373,6 +1562,7 @@ public class TileReplicator extends TileEntity implements ITickable {
         ItemStack chosen = ItemBloodSample.cleanCopy(list.get(next));
         if (!ItemStack.areItemStacksEqual(chosen, pattern)) {
             pattern = chosen;
+            finishDecay(); // смена шаблона во время распада: остаток UU сразу
             dead = false;
             // выбранный шаблон ждёт на паузе: стрелками можно спокойно долистать до нужного, рост (и списание UU)
             // начинается кнопкой «начать рост» (замечание Антона 07.11: иначе стадия стартовала сразу и стрелки блокировались)
@@ -1606,7 +1796,9 @@ public class TileReplicator extends TileEntity implements ITickable {
         }
         progress = stage < STAGES ? Math.max(0, Math.min(stageTotal(), tag.getDouble("Progress"))) : 0;
         paid = stage < STAGES ? Math.max(0, Math.min(1, tag.getDouble("Paid"))) : 0;
-        rollingFull = tag.getBoolean("RollingFull");
+        refundAcc = Math.max(0, Math.min(1, tag.getDouble("RefundAcc")));
+        decay = Math.max(0, Math.min(DECAY_TICKS, tag.getInteger("Decay")));
+        decayUu = decay > 0 ? Math.max(0, tag.getDouble("DecayUu")) : 0;
         charging = tag.getBoolean("Charging");
         // у готового клона без записи здоровья (мир до 4в) — полное здоровье
         health = stage >= STAGES ? (tag.hasKey("Health") ? Math.max(0, Math.min(MAX_HEALTH, tag.getDouble("Health"))) : MAX_HEALTH) : 0;
@@ -1659,7 +1851,9 @@ public class TileReplicator extends TileEntity implements ITickable {
         tag.setIntArray("StageCosts", costs.clone());
         tag.setIntArray("StageTimes", times.clone());
         tag.setDouble("Paid", paid);
-        tag.setBoolean("RollingFull", rollingFull);
+        tag.setDouble("RefundAcc", refundAcc);
+        tag.setInteger("Decay", decay);
+        tag.setDouble("DecayUu", decayUu);
         tag.setBoolean("Charging", charging);
         tag.setDouble("Health", health);
         tag.setDouble("LifeUu", lifeUu);

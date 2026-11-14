@@ -16,7 +16,7 @@ import net.minecraftforge.items.SlotItemHandler;
 
 /**
  * Окно репликатора: слоты по рисунку концепта (скелет окна репликатора IC2 176x184) и передача заряда на клиент.
- * Слева капсула UU, пустая капсула, гнилая плоть; справа 4 улучшения и резерв; снизу инвентарь игрока.
+ * Слева капсула UU, пустая капсула, резерв; справа 4 улучшения и якорь; снизу инвентарь игрока.
  */
 public class ContainerReplicator extends Container {
 
@@ -36,7 +36,7 @@ public class ContainerReplicator extends Container {
     private int seconds;
     private int uuShort;
     private boolean growth;
-    private int flesh;
+    private int resetUu;
     private int health;
     private int healthMille;
     private int uuDays;
@@ -57,7 +57,7 @@ public class ContainerReplicator extends Container {
     private int sentSeconds = -1;
     private int sentUuShort = -1;
     private int sentGrowth = -1;
-    private int sentFlesh = -1;
+    private int sentResetUu = -1;
     private int sentHealth = -1;
     private int sentHealthMille = -1;
     private int sentGrowEu = -1;
@@ -71,7 +71,7 @@ public class ContainerReplicator extends Container {
         ReplicatorInventory inv = tile.getInventory();
         addSlotToContainer(new SlotItemHandler(inv, ReplicatorInventory.UU_IN, 8, 8));
         addSlotToContainer(new SlotItemHandler(inv, ReplicatorInventory.CELL_OUT, 8, 62));
-        addSlotToContainer(new SlotItemHandler(inv, ReplicatorInventory.FLESH, 152, 83));
+        addSlotToContainer(new SlotItemHandler(inv, ReplicatorInventory.ANCHOR, 152, 83));
         for (int i = 0; i < ReplicatorInventory.UPGRADE_COUNT; i++) {
             // слот улучшения всегда «кликабелен»: так трансформатор можно доложить мышью и в заблокированный слот,
             // а сколько можно забрать, решает сам инвентарь (нужный резерву трансформатор не отдаётся)
@@ -124,7 +124,7 @@ public class ContainerReplicator extends Container {
         int sec = Math.min(Short.MAX_VALUE, tile.getSecondsLeft());
         int uu = Math.min(Short.MAX_VALUE, tile.getUuShort());
         int g = tile.hasGrowth() ? 1 : 0;
-        int fl = tile.resetFlesh(); // для подтверждения корзины: сколько плоти останется
+        int back = Math.min(Short.MAX_VALUE, tile.resetUu()); // для подтверждения корзины: сколько UU вернётся (не больше 16000)
         // поддержание (4в): здоровье числом и долей для шкалы, на сколько полных дней хватит UU (до 666; -1 — меньше дня), в short помещается
         int hp = tile.getHealthShown();
         int hpMille = (int) Math.round(tile.getHealthFraction() * 1000);
@@ -170,8 +170,8 @@ public class ContainerReplicator extends Container {
             if (g != sentGrowth) {
                 l.sendWindowProperty(this, 12, g);
             }
-            if (fl != sentFlesh) {
-                l.sendWindowProperty(this, 13, fl);
+            if (back != sentResetUu) {
+                l.sendWindowProperty(this, 13, back);
             }
             if (hp != sentHealth) {
                 l.sendWindowProperty(this, 14, hp);
@@ -206,7 +206,7 @@ public class ContainerReplicator extends Container {
         sentSeconds = sec;
         sentUuShort = uu;
         sentGrowth = g;
-        sentFlesh = fl;
+        sentResetUu = back;
         sentHealth = hp;
         sentHealthMille = hpMille;
         sentUuDays = days;
@@ -233,7 +233,7 @@ public class ContainerReplicator extends Container {
             case 10: seconds = data; break;
             case 11: uuShort = data; break;
             case 12: growth = data != 0; break;
-            case 13: flesh = data; break;
+            case 13: resetUu = data; break;
             case 14: health = data; break;
             case 15: healthMille = data; break;
             case 16: uuDays = data; break;
@@ -313,9 +313,9 @@ public class ContainerReplicator extends Container {
         return growth;
     }
 
-    /** Сколько гнилой плоти даст корзина (на клиенте). */
-    public int getResetFlesh() {
-        return flesh;
+    /** Сколько UU вернёт в бак корзина, mB (на клиенте). */
+    public int getResetUu() {
+        return resetUu;
     }
 
     /** Здоровье клона, целое 0..20 (на клиенте). */
@@ -392,7 +392,7 @@ public class ContainerReplicator extends Container {
             slot.onTake(player, taken);
             return original;
         } else {
-            // в машину: капсула UU, улучшения, резерв (выходные слоты не принимают)
+            // в машину: капсула UU, якорь, улучшения, резерв (выходной слот не принимает)
             // кладём через правила инвентаря машины (лимиты, проверка уровня), а не простым слиянием стопок
             boolean moved = false;
             ReplicatorInventory inv = tile.getInventory();

@@ -5,6 +5,7 @@ import dlx.matterrebirth.client.FreshSkeletonTexture;
 import dlx.matterrebirth.client.IC2LangPatch;
 import dlx.matterrebirth.client.RenderReplicator;
 import dlx.matterrebirth.client.ReplicatorBakedModel;
+import dlx.matterrebirth.client.ShimmerSprite;
 import dlx.matterrebirth.client.UuChamberSprite;
 import dlx.matterrebirth.init.MRContent;
 import dlx.matterrebirth.tile.TileReplicator;
@@ -84,11 +85,16 @@ public class ProxyClient extends Proxy {
         bubbles.add(new float[]{x, y, z, x, y, z, 0, 0.01F + world.rand.nextFloat() * 0.01F, 0, size, 0});
     }
 
-    /** Почти прозрачная UU для камеры машины: собирается из картинки IC2 при загрузке текстур блоков. */
+    /**
+     * Почти прозрачная UU для камеры машины: собирается из картинки IC2 при загрузке текстур блоков.
+     * Кольца отката: кадр анимации по времени мира, чтобы перелив шёл вместе с окном и тревогой (Антон 14.11).
+     */
     @SubscribeEvent
     public static void onTextureStitch(TextureStitchEvent.Pre event) {
         if ("textures".equals(event.getMap().getBasePath())) {
             event.getMap().setTextureEntry(new UuChamberSprite());
+            event.getMap().setTextureEntry(new ShimmerSprite(ShimmerSprite.FLOOR));
+            event.getMap().setTextureEntry(new ShimmerSprite(ShimmerSprite.CEILING));
         }
     }
 

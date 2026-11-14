@@ -18,6 +18,7 @@ import net.minecraft.entity.player.InventoryPlayer;
 import net.minecraft.init.SoundEvents;
 import net.minecraft.item.ItemStack;
 import net.minecraft.util.ResourceLocation;
+import net.minecraft.util.text.TextFormatting;
 import net.minecraftforge.fluids.Fluid;
 import net.minecraftforge.fluids.FluidRegistry;
 import net.minecraftforge.fml.common.Loader;
@@ -74,7 +75,8 @@ public class GuiReplicator extends GuiContainer {
     // цвета стадий снизу вверх: скелет, нервы, сосуды, мышцы, кожа; выключенный экран — всё серое
     private static final int[] STAGE_COLORS = {0xE2DABE, 0xEBCD46, 0xCD3737, 0xB9555F, 0xDEAA87};
     private static final int BAR_FRAME = 0x3C3C3C;
-    private static final int TITLE = 0xC8C8C8, DONE = 0x5ADC6E, DIM = 0x505050, PAUSE_GREY = 0x969696, RED = 0xDC4646;
+    private static final int TITLE = 0xC8C8C8, DONE = 0x5ADC6E, DIM = 0x505050, PAUSE_GREY = 0x969696, RED = 0xFF0000;
+    // красный тревоги — чистый #FF0000, как красный конец перелива отката (Антон 14.11: с #DC4646 казался оранжевым)
     private static final int HEALTH_RED = 0xC82828;
     private static final int GROW_CYAN = 0x5CC8C8; // рост бирюзовый, как кольца машины (Антон 08.11) // шкала здоровья на экране «Поддержание» (макет 07.11)
     private static final String[] STAGE_KEYS = {"skeleton", "nerves", "vessels", "muscles", "skin"};
@@ -229,6 +231,10 @@ public class GuiReplicator extends GuiContainer {
             }
         } else if (arrowsOn() && arrowAt(mx, my) >= 0) {
             tip.add(I18n.format("gui.matterrebirth.replicator.pattern_" + (arrowAt(mx, my) == TileReplicator.BUTTON_NEXT ? "next" : "prev")));
+        } else if (anchorSlotEmptyAt(mx, my)) {
+            // пустой слот якоря без силуэта: подсказка при наведении (Антон 09.11)
+            tip.add(I18n.format("gui.matterrebirth.replicator.anchor_slot"));
+            tip.add(TextFormatting.GRAY + I18n.format("gui.matterrebirth.replicator.anchor_slot_tip"));
         } else if (mx >= TANK_X && mx < TANK_X + 20 && my >= TANK_Y && my < TANK_Y + TANK_H) {
             int amount = container.getFluid();
             tip.add(amount > 0 ? I18n.format("gui.matterrebirth.replicator.tank", amount, TileReplicator.TANK_CAPACITY)
@@ -329,9 +335,9 @@ public class GuiReplicator extends GuiContainer {
         }
         drawStageBar();
         // клон слоями на месте каркаса (5б+, Антон 08.11); каркас остаётся контуром ещё не выращенного, у готового
-        // и погибшего клона (он виден сам: бледный, обмякший) каркаса нет
+        // и распадающегося погибшего клона (он виден сам: бледный, обмякший) каркаса нет
         TileReplicator tile = container.getTile();
-        if (!ready() && !tile.isDead()) {
+        if (!ready() && !tile.isDecaying()) {
             drawGhost();
         }
         float gx = guiLeft + AREA_CX - GHOST_W / 2, gy = guiTop + AREA_BOTTOM - GHOST_H;
@@ -414,7 +420,7 @@ public class GuiReplicator extends GuiContainer {
         if (stage >= TileReplicator.STAGES || !container.hasGrowth()) {
             return;
         }
-        // цвет как у значка текущей стадии в списке: рост бирюзовый, ожидание жёлтое, откат красный, пауза серая (Антон 07–08.11)
+        // цвет как у значка текущей стадии в списке: рост бирюзовый, ожидание жёлтое, откат — перелив (Shimmer), пауза серая
         int rgb = stageMarkColor();
         float y = guiTop + AREA_BOTTOM - GHOST_H * shownProgress();
         int x1 = guiLeft + Math.round(AREA_CX - GHOST_W / 2) - 3, x2 = guiLeft + Math.round(AREA_CX + GHOST_W / 2) + 1; // не доходит до точек списка
@@ -423,12 +429,16 @@ public class GuiReplicator extends GuiContainer {
         fill(x1, y + 1, x2, y + 2, 0x40000000 | rgb);
     }
 
-    /** Цвет текущей стадии: рост бирюзовый, откат красный, пауза серая, иначе (ждёт UU, энергию) жёлтый. */
+    /**
+     * Цвет текущей стадии: рост бирюзовый, откат — перелив красный ↔ фиолетовый вместе с кольцами и срезом клона
+     * (Антон 14.11), перегрузка красная, пауза серая, иначе жёлтый.
+     */
     private int stageMarkColor() {
         switch (container.getStatus()) {
             case GROWING:
                 return GROW_CYAN;
             case ROLLBACK:
+                return Shimmer.color(mc.world);
             case NO_POWER:
             case OVERLOAD:
                 return RED;
@@ -476,7 +486,7 @@ public class GuiReplicator extends GuiContainer {
         return mx >= x && mx < x + 22 && my >= CONF_BTN_Y && my < CONF_BTN_Y + 12;
     }
 
-    /** Подтверждение корзины поверх экрана: затемнение, рамка, вопрос, сколько плоти останется, «Да» и «Нет». */
+    /** Подтверждение корзины поверх экрана: затемнение, рамка, вопрос, сколько UU вернётся в бак, «Да» и «Нет». */
     private void drawConfirm(int mx, int my) {
         GlStateManager.disableDepth();
         drawRect(SX, SY, SX + SW, SY + 91, 0xAA000000);
@@ -484,12 +494,12 @@ public class GuiReplicator extends GuiContainer {
         drawRect(CONF_X + 1, CONF_Y + 1, CONF_X + CONF_W - 1, CONF_Y + CONF_H - 1, 0xFF000000);
         boolean ready = container.getStage() >= TileReplicator.STAGES;
         String title = I18n.format(ready ? "gui.matterrebirth.replicator.confirm_destroy" : "gui.matterrebirth.replicator.confirm_reset");
-        String flesh = I18n.format("gui.matterrebirth.replicator.confirm_flesh", container.getResetFlesh());
+        String back = I18n.format("gui.matterrebirth.replicator.confirm_uu", container.getResetUu());
         int cx = CONF_X + CONF_W / 2, maxW = CONF_W - 4;
         title = fontRenderer.trimStringToWidth(title, maxW);
-        flesh = fontRenderer.trimStringToWidth(flesh, maxW);
+        back = fontRenderer.trimStringToWidth(back, maxW);
         fontRenderer.drawString(title, cx - fontRenderer.getStringWidth(title) / 2, CONF_Y + 4, WHITE);
-        fontRenderer.drawString(flesh, cx - fontRenderer.getStringWidth(flesh) / 2, CONF_Y + 14, GREY);
+        fontRenderer.drawString(back, cx - fontRenderer.getStringWidth(back) / 2, CONF_Y + 14, GREY);
         drawConfirmButton(YES_X, I18n.format("gui.matterrebirth.replicator.confirm_yes"),
                 confirmButtonAt(YES_X, mx, my) ? 0xE05050 : 0xAA2828, 0xFF7878, mx, my);
         drawConfirmButton(NO_X, I18n.format("gui.matterrebirth.replicator.confirm_no"),
@@ -898,7 +908,7 @@ public class GuiReplicator extends GuiContainer {
             case GROWING:
                 int sec = container.getSecondsLeft();
                 status = sec / 60 + ":" + (sec % 60 < 10 ? "0" : "") + sec % 60;
-                color = WHITE;
+                color = GROW_CYAN; // как значок стадии и линия печати (Антон 13.11)
                 break;
             case NEED_UU:
                 status = I18n.format("gui.matterrebirth.replicator.need_uu");
@@ -922,7 +932,7 @@ public class GuiReplicator extends GuiContainer {
                 break;
             case ROLLBACK:
                 status = I18n.format("gui.matterrebirth.replicator.rollback");
-                color = RED;
+                color = Shimmer.color(mc.world); // как срез, линия печати и кольца (Антон 14.11)
                 break;
             case NO_POWER:
                 status = I18n.format("gui.matterrebirth.replicator.no_power");
@@ -934,15 +944,23 @@ public class GuiReplicator extends GuiContainer {
                 break;
             case DEAD:
                 status = I18n.format("gui.matterrebirth.replicator.dead");
-                color = RED;
+                // пока тело распадается — перелив, как кольца; после распада ровно красный (Антон 14.11)
+                color = container.getTile().isDecaying() ? Shimmer.color(mc.world) : RED;
                 break;
             default:
                 status = I18n.format("gui.matterrebirth.replicator.idle");
-                color = YELLOW;
+                color = PAUSE_GREY; // жёлтый — «чего-то не хватает», пустая машина просто ждёт (Антон 13.11)
                 break;
         }
         status = fontRenderer.trimStringToWidth(status, TRASH_X - REPEAT_X - 14);
         fontRenderer.drawString(status, STATUS_CX - fontRenderer.getStringWidth(status) / 2, BTN_Y + 2, color);
+    }
+
+    /** Курсор над пустым слотом якоря (координаты окна) и в руке ничего нет. */
+    private boolean anchorSlotEmptyAt(int mx, int my) {
+        return mx >= 152 && mx < 168 && my >= 83 && my < 99
+                && container.getTile().getInventory().getStackInSlot(ReplicatorInventory.ANCHOR).isEmpty()
+                && mc.player.inventory.getItemStack().isEmpty();
     }
 
     /** Кнопка «i» под курсором (координаты окна); без HEI её нет. */

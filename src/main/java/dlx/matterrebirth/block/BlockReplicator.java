@@ -80,11 +80,13 @@ public class BlockReplicator extends Block implements IWrenchable {
 
     /**
      * Цвета колец: OFF — погасли (нет энергии), IDLE — белые (пусто без шаблона, пауза), GROW — бирюзовые (рост),
-     * WAIT — жёлтые (нужно UU, диапауза, мало EU), ALERT — красные (откат, перегрузка, клон теряет здоровье, погиб),
-     * OK — зелёные (клон готов и здоров). Номер значения передаётся клиенту: новые только в конец.
+     * WAIT — жёлтые (нужно UU, диапауза, мало EU), ALERT — красные (перегрузка, клон теряет здоровье, погиб),
+     * OK — зелёные (клон готов и здоров), ROLLBACK — перелив красный ↔ фиолетовый
+     * (откат и распад погибшего клона, Антон 14.11; текстуры колец — client/ShimmerSprite).
+     * Номер значения передаётся клиенту: новые только в конец.
      */
     public enum Light implements IStringSerializable {
-        OFF, IDLE, GROW, WAIT, ALERT, OK;
+        OFF, IDLE, GROW, WAIT, ALERT, OK, ROLLBACK;
 
         @Override
         public String getName() {

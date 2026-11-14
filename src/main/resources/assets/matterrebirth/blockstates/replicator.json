@@ -60,6 +60,12 @@
           "floor": "matterrebirth:blocks/replicator_floor_ok",
           "ceiling": "matterrebirth:blocks/replicator_ceiling_ok"
         }
+      },
+      "rollback": {
+        "textures": {
+          "floor": "matterrebirth:blocks/replicator_floor_rollback",
+          "ceiling": "matterrebirth:blocks/replicator_ceiling_rollback"
+        }
       }
     },
     "uu": {

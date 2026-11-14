@@ -17,7 +17,8 @@ public class ReplicatorInventory extends ItemStackHandler {
 
     public static final int UU_IN = 0;
     public static final int CELL_OUT = 1;
-    public static final int FLESH = 2;
+    /** Слот межпространственного якоря (5г: на месте прежнего слота гнилой плоти), одна штука. */
+    public static final int ANCHOR = 2;
     public static final int UPGRADE_FIRST = 3;
     public static final int UPGRADE_COUNT = 4;
     public static final int RESERVE = 7;
@@ -49,8 +50,8 @@ public class ReplicatorInventory extends ItemStackHandler {
         if (slot == CELL_OUT) {
             return false; // сюда кладёт только машина
         }
-        if (slot == FLESH) {
-            return false; // гнилую плоть кладёт только машина
+        if (slot == ANCHOR) {
+            return isAnchor(stack);
         }
         if (isUpgradeSlot(slot)) {
             return upgradeKind(stack) != Upgrade.NONE;
@@ -65,7 +66,7 @@ public class ReplicatorInventory extends ItemStackHandler {
 
     @Override
     public int getSlotLimit(int slot) {
-        return slot == RESERVE ? 1 : 64;
+        return slot == RESERVE || slot == ANCHOR ? 1 : 64;
     }
 
     @Override
@@ -137,19 +138,21 @@ public class ReplicatorInventory extends ItemStackHandler {
         onChange.run();
     }
 
-    /** Машина сама кладёт в выходные слоты (капсулы, плоть) в обход правил для игрока. */
+    /** Машина сама кладёт в выходной слот (пустые капсулы) в обход правил для игрока. */
     public ItemStack insertInternal(int slot, ItemStack stack, boolean simulate) {
         return super.insertItem(slot, simulate ? stack : stack.copy(), simulate);
     }
 
-    public enum Upgrade { NONE, OVERCLOCKER, TRANSFORMER, ENERGY_STORAGE, EJECTOR, ANCHOR }
+    /** Межпространственный якорь (кладётся только в свой слот, не в слоты улучшений). */
+    public static boolean isAnchor(ItemStack stack) {
+        return !stack.isEmpty() && stack.getItem() == MRContent.dimensionalAnchor;
+    }
+
+    public enum Upgrade { NONE, OVERCLOCKER, TRANSFORMER, ENERGY_STORAGE, EJECTOR }
 
     public static Upgrade upgradeKind(ItemStack stack) {
         if (stack.isEmpty()) {
             return Upgrade.NONE;
-        }
-        if (stack.getItem() == MRContent.dimensionalAnchor) {
-            return Upgrade.ANCHOR;
         }
         if (same(stack, "overclocker")) {
             return Upgrade.OVERCLOCKER;
@@ -161,7 +164,7 @@ public class ReplicatorInventory extends ItemStackHandler {
             return Upgrade.ENERGY_STORAGE;
         }
         if (same(stack, "ejector")) {
-            return Upgrade.EJECTOR; // сама машина выталкивает пустые капсулы и гнилую плоть только с ним
+            return Upgrade.EJECTOR; // сама машина выталкивает пустые капсулы только с ним
         }
         return Upgrade.NONE;
     }

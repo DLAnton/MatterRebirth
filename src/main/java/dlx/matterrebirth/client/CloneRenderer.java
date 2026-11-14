@@ -1,7 +1,6 @@
 package dlx.matterrebirth.client;
 
 import dlx.matterrebirth.MatterRebirth;
-import dlx.matterrebirth.block.BlockReplicator;
 import dlx.matterrebirth.item.ItemBloodSample;
 import dlx.matterrebirth.tile.TileReplicator;
 import net.minecraft.client.Minecraft;
@@ -22,11 +21,13 @@ import java.util.UUID;
  * FreshSkeletonTexture), 2 нервы и 3 сосуды (тонкие оболочки чуть больше костей, на сосудах нарисованы и нервы),
  * 4 мышцы, 5 кожа — скин того, чья кровь в шаблоне (CloneSkins). Растущий слой виден от ступней до доли роста стадии,
  * при откате тает сверху. Клон ~1,4 блока, лицом к стеклу, едва заметно покачивается («парит» в UU).
- * Погибший клон (пока гнилую плоть не забрали) — мертвецки бледный (PaleSkins), обмякшая поза.
+ * Погибший клон — мертвецки бледный (PaleSkins), обмякшая поза; около минуты распадается сверху вниз, срез переливается
+ * красным и фиолетовым (5г, Антон 14.11), потом камера пуста.
  * Координаты клона — пиксели модели игрока: y от ступней вверх (0..32), перед — +z, x вправо от клона — к −x.
  * Обрезка роста — в самих коробках (не плоскостью отсечения: с шейдерами она ненадёжна).
  * На линии роста у срезанных коробок — светящаяся крышка (5б+, лист clone_cut_v1, вариант А утверждён Антоном 08.11):
- * поле с текстурой «сетка печати» и яркая кромка, цвет как у линии печати в окне, на полной яркости.
+ * поле с текстурой «сетка печати» и яркая кромка, цвет как у линии печати в окне, на полной яркости; откат и распад —
+ * перелив красный ↔ фиолетовый (Shimmer: клон разрушается, UU возвращается в бак; Антон 14.11).
  */
 final class CloneRenderer {
 
@@ -53,6 +54,8 @@ final class CloneRenderer {
     /** Погибший клон сдвинут назад на столько пикселей клона: середина его наклонённой фигуры — над центром площадки. */
     private static final float DEAD_SHIFT = 3;
     private static final float[] NO_TINT = {1, 1, 1};
+    /** Высота погибшего клона для распада, пиксели клона: макушка со вторым слоем скина. */
+    private static final float DECAY_TOP = 32.5F;
     private static final float ALL = 1000;
 
     private enum Part { HEAD, BODY, ARM_R, ARM_L, LEG_R, LEG_L }
@@ -69,7 +72,7 @@ final class CloneRenderer {
      * до пузырьков и до полупрозрачного слоя (стекло и UU ложатся поверх).
      */
     static void render(RenderReplicator renderer, TileReplicator te, float partialTicks) {
-        boolean dead = te.isDead();
+        boolean dead = te.isDecaying();
         int st = te.getStage();
         float f = te.getShownGrowth(partialTicks);
         // меньше 1/20 пикселя клона не рисуется: иначе на площадке видны донца коробок ступней
@@ -93,7 +96,7 @@ final class CloneRenderer {
             // сдвинуть назад, чтобы он был посередине камеры (Антон 08.11)
             GlStateManager.translate(0, 0, -DEAD_SHIFT);
         }
-        body(te, f, growing);
+        body(te, f, growing, te.getDecayLeft(partialTicks));
         OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, lastX, lastY);
         GlStateManager.popMatrix();
     }
@@ -109,7 +112,7 @@ final class CloneRenderer {
     static boolean renderGui(TileReplicator te, float f, float x, float y, float z, float unit) {
         int st = te.getStage();
         boolean growing = growing(te, f);
-        boolean dead = te.isDead();
+        boolean dead = te.isDecaying();
         if (!dead && st == 0 && !growing) {
             return false;
         }
@@ -129,7 +132,7 @@ final class CloneRenderer {
         }
         GlStateManager.enableDepth();
         GlStateManager.depthMask(true);
-        body(te, f, growing);
+        body(te, f, growing, te.getDecayLeft(Minecraft.getMinecraft().getRenderPartialTicks()));
         // окно рисуется дальше плоским (линия печати, подтверждение корзины): глубина клона им не мешает
         GlStateManager.clear(GL11.GL_DEPTH_BUFFER_BIT);
         if (!depth) {
@@ -145,12 +148,15 @@ final class CloneRenderer {
 
     /** Растёт ли слой текущей стадии настолько, что его видно (меньше 1/20 пикселя клона — нет). */
     private static boolean growing(TileReplicator te, float f) {
-        return !te.isDead() && te.getStage() < TileReplicator.STAGES && f * 32 >= 0.05F;
+        return !te.isDecaying() && te.getStage() < TileReplicator.STAGES && f * 32 >= 0.05F;
     }
 
-    /** Сам клон в его координатах (пиксели модели, ступни y = 0, перед +z): слои, срез; погибший — обмякший. */
-    private static void body(TileReplicator te, float f, boolean growing) {
-        boolean dead = te.isDead();
+    /**
+     * Сам клон в его координатах (пиксели модели, ступни y = 0, перед +z): слои, срез; погибший — обмякший,
+     * распадается сверху: left — сколько тела осталось (0..1).
+     */
+    private static void body(TileReplicator te, float f, boolean growing, float left) {
+        boolean dead = te.isDecaying();
         int st = te.getStage();
         int g = st + 1;
         CloneSkins.Skin skin = null;
@@ -171,7 +177,12 @@ final class CloneRenderer {
         GlStateManager.color(1, 1, 1, 1);
 
         if (dead) {
-            layer(5, -ALL, ALL, slim, skin, NO_TINT, true); // бледная копия скина (PaleSkins)
+            // бледная копия скина (PaleSkins); распад срезает сверху (в позе до наклона: срез наклонён вместе с телом)
+            float clip = left >= 1 ? ALL : left * DECAY_TOP;
+            layer(5, -ALL, clip, slim, skin, NO_TINT, true);
+            if (left < 1) {
+                cut(5, clip, slim, skin, Shimmer.color(te.getWorld()), true); // распад — перелив, как кольца (Антон 14.11)
+            }
         } else {
             // растущий слой — ниже clip; мышцы закрывают оболочки (они шире мышц головы и тела) — кости и оболочки
             // под растущими мышцами рисуются только выше clip
@@ -192,7 +203,7 @@ final class CloneRenderer {
             if (growing) {
                 layer(g, -ALL, clip, slim, skin, NO_TINT, false);
                 if (f < 1) {
-                    cut(g, clip, slim, skin, te.getLookLight());
+                    cut(g, clip, slim, skin, cutColor(te), false);
                 }
             }
         }
@@ -214,29 +225,36 @@ final class CloneRenderer {
     }
 
     /**
-     * Светящийся срез растущего слоя на высоте clip: поле с текстурой, затем кромка без текстуры. Цвет — как у линии печати
-     * в окне: рост бирюзовый, откат и перегрузка красные, ожидание (UU, энергия) жёлтое, пауза серая. Полная яркость.
+     * Цвет среза растущего слоя — как у линии печати в окне: рост бирюзовый, откат — перелив красный ↔ фиолетовый
+     * (Shimmer, Антон 14.11), перегрузка красная, ожидание (UU, энергия) жёлтое, пауза серая.
      */
-    private static void cut(int layer, float clip, boolean slim, CloneSkins.Skin skin,
-                            BlockReplicator.Light state) {
-        int rgb;
-        switch (state) {
-            case GROW:
-                rgb = 0x5CC8C8;
-                break;
-            case ALERT:
-                rgb = 0xDC4646;
-                break;
-            case WAIT:
-                rgb = 0xFFD84A;
-                break;
-            default: // пауза; без энергии слои откатываются — это ALERT
-                rgb = 0x969696;
+    private static int cutColor(TileReplicator te) {
+        if (te.getLookRollback()) {
+            return Shimmer.color(te.getWorld());
         }
+        switch (te.getLookLight()) {
+            case ROLLBACK:
+                return Shimmer.color(te.getWorld());
+            case GROW:
+                return 0x5CC8C8;
+            case ALERT:
+                return 0xFF0000; // перегрузка — чистый красный (Антон 14.11)
+            case WAIT:
+                return 0xFFD84A;
+            default: // пауза
+                return 0x969696;
+        }
+    }
+
+    /**
+     * Светящийся срез слоя на высоте clip: поле с текстурой, затем кромка без текстуры, на полной яркости.
+     * slump — срез обмякшего погибшего клона (в его позе).
+     */
+    private static void cut(int layer, float clip, boolean slim, CloneSkins.Skin skin, int rgb, boolean slump) {
         OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, 240, 240);
-        layerMode(layer, -ALL, clip, slim, skin, lighten(rgb, 0.25F), false, CAP);
+        layerMode(layer, -ALL, clip, slim, skin, lighten(rgb, 0.25F), slump, CAP);
         GlStateManager.disableTexture2D();
-        layerMode(layer, -ALL, clip, slim, skin, lighten(rgb, 0.45F), false, CAP_RIM);
+        layerMode(layer, -ALL, clip, slim, skin, lighten(rgb, 0.45F), slump, CAP_RIM);
         GlStateManager.enableTexture2D();
     }
 

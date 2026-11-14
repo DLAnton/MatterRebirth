@@ -7,9 +7,9 @@ import javax.annotation.Nonnull;
 
 /**
  * Слоты репликатора для автоматики (трубы, воронки, выталкиватели соседних машин), только через порты.
- * Видны три первых слота машины: капсула UU (0), пустая капсула (1), гнилая плоть (2).
- * Положить можно только контейнер с UU в слот 0, забрать только из слотов 1 и 2.
- * Улучшения и резерв автоматике не видны: их меняет только игрок в окне.
+ * Видны два первых слота машины: капсула UU (0) и пустая капсула (1).
+ * Положить можно только контейнер с UU в слот 0, забрать только из слота 1.
+ * Якорь, улучшения и резерв автоматике не видны: их меняет только игрок в окне.
  */
 public class ReplicatorAutomation implements IItemHandler {
 
@@ -21,7 +21,7 @@ public class ReplicatorAutomation implements IItemHandler {
 
     @Override
     public int getSlots() {
-        return 3; // UU_IN, CELL_OUT, FLESH идут первыми, номера совпадают с номерами в машине
+        return 2; // UU_IN и CELL_OUT идут первыми, номера совпадают с номерами в машине
     }
 
     @Override
@@ -42,7 +42,7 @@ public class ReplicatorAutomation implements IItemHandler {
     @Override
     @Nonnull
     public ItemStack extractItem(int slot, int amount, boolean simulate) {
-        if (slot != ReplicatorInventory.CELL_OUT && slot != ReplicatorInventory.FLESH) {
+        if (slot != ReplicatorInventory.CELL_OUT) {
             return ItemStack.EMPTY;
         }
         return inv.extractItem(slot, amount, simulate);
@@ -59,6 +59,6 @@ public class ReplicatorAutomation implements IItemHandler {
     }
 
     private static boolean inRange(int slot) {
-        return slot >= 0 && slot < 3;
+        return slot >= 0 && slot < 2;
     }
 }

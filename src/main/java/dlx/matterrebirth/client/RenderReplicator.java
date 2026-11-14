@@ -39,20 +39,54 @@ public class RenderReplicator extends TileEntitySpecialRenderer<TileReplicator> 
     private static final int LED_UU = 0xC05CD8, LED_EU = 0xE8C83A, HEALTH = 0xD83A30;
     /** Выращенные стадии — зелёные, как текст готовой стадии в окне (Антон 08.11). */
     private static final int SEGMENT_DONE = 0x5ADC6E;
+    /**
+     * Планки якоря по бокам экранчика (5г, рисунок Антона 09.11): столбцы 7 и 24 лица, строки 3..6. Якорь стоит
+     * и есть энергия — ярко; без энергии — тускло (40 % пути от гнезда планки к цвету, вариант А 13.11); якоря нет — ничего не рисуется,
+     * видны гнёзда планок на самой текстуре лица, как у погасших ламп (Антон 13.11).
+     */
+    private static final int ANCHOR_BAR = 0x7030A0, ANCHOR_SLOT = 0x3E4C4D;
     /** Пульсация лампочек и текущей стадии, тиков на период: медленно — идёт процесс, быстро — тревога (Антон 08.11). */
     private static final float PULSE_SLOW = 40, PULSE_FAST = 12;
 
-    /** Цвета ореола по BlockReplicator.Light (OFF не рисуется). */
-    private static int glowColor(BlockReplicator.Light light) {
+    /**
+     * Цвет деления текущей стадии — тот же, что у значка стадии и линии печати в окне (одна палитра, Антон 13.11):
+     * рост бирюзовый, ожидание жёлтое, тревога красная, откат — перелив красный ↔ фиолетовый (shimmer), пауза серая.
+     */
+    private static int segmentColor(BlockReplicator.Light light, boolean rollback, int shimmer) {
+        if (rollback) {
+            return shimmer;
+        }
+        switch (light) {
+            case ROLLBACK:
+                return shimmer;
+            case GROW:
+                return 0x5CC8C8;
+            case WAIT:
+                return 0xFFD84A;
+            case ALERT:
+                return 0xFF0000; // тревога — чистый красный (Антон 14.11)
+            default: // пауза (кольца при ней белые — это подсветка, не цвет состояния)
+                return 0x969696;
+        }
+    }
+
+    /**
+     * Цвета ореола по BlockReplicator.Light (OFF не рисуется) — те же, что у колец и в окне (одна палитра, Антон 14.11):
+     * рост бирюзовый, ожидание жёлтое, тревога красная, клон здоров зелёный (как «Готов»), откат и распад — перелив
+     * красный ↔ фиолетовый (shimmer, вместе с кольцами); пауза и пустая машина — белый.
+     */
+    private static int glowColor(BlockReplicator.Light light, int shimmer) {
         switch (light) {
             case GROW:
-                return 0x5CD0D0;
+                return 0x5CC8C8;
             case WAIT:
-                return 0xF0D040;
+                return 0xFFD84A;
             case ALERT:
-                return 0xF04A38;
+                return 0xFF0000; // тревога — чистый красный (Антон 14.11)
             case OK:
-                return 0x58D868;
+                return 0x5ADC6E;
+            case ROLLBACK:
+                return shimmer;
             default: // IDLE
                 return 0xF4F8FA;
         }
@@ -83,7 +117,7 @@ public class RenderReplicator extends TileEntitySpecialRenderer<TileReplicator> 
 
         drawScreen(te, partialTicks);
         if (MRConfig.CLIENT.ringGlow && light != BlockReplicator.Light.OFF) {
-            drawGlow(glowColor(light));
+            drawGlow(glowColor(light, Shimmer.color(te.getWorld())));
         }
 
         GlStateManager.enableCull();
@@ -166,6 +200,13 @@ public class RenderReplicator extends TileEntitySpecialRenderer<TileReplicator> 
         BufferBuilder buf = tess.getBuffer();
         buf.begin(GL11.GL_QUADS, DefaultVertexFormats.POSITION_COLOR);
         float time = te.getWorld().getTotalWorldTime() % 24000 + partialTicks;
+        if (te.getLookAnchor()) {
+            int bar = te.getLookEu() ? ANCHOR_BAR : mix(ANCHOR_SLOT, ANCHOR_BAR, 0.4F);
+            for (int vy = 3; vy <= 6; vy++) {
+                texel(buf, 7, vy, 1, bar);
+                texel(buf, 24, vy, 1, bar);
+            }
+        }
         lamp(buf, 9, te.getLookUuLamp(), LED_UU, time);
         lamp(buf, 11, te.getLookEuLamp(), LED_EU, time);
         int stage = te.getLookStage();
@@ -175,8 +216,10 @@ public class RenderReplicator extends TileEntitySpecialRenderer<TileReplicator> 
         // текущая стадия — цветом колец: рост медленно пульсирует, тревога быстро, ожидание и пауза ровно (Антон 08.11)
         BlockReplicator.Light light = te.getLookLight();
         if (te.getLookCurrent() && stage < TileReplicator.STAGES && light != BlockReplicator.Light.OFF) {
-            int mode = light == BlockReplicator.Light.GROW ? 2 : light == BlockReplicator.Light.ALERT ? 3 : 1;
-            texel(buf, 14 + stage * 2, 4, 1, dim(glowColor(light), pulse(mode, time)));
+            int mode = light == BlockReplicator.Light.GROW ? 2
+                    : light == BlockReplicator.Light.ALERT || light == BlockReplicator.Light.ROLLBACK ? 3 : 1;
+            int rgb = segmentColor(light, te.getLookRollback(), Shimmer.color(te.getWorld()));
+            texel(buf, 14 + stage * 2, 4, 1, dim(rgb, pulse(mode, time)));
         }
         if (stage >= TileReplicator.STAGES) {
             int w = Math.round(14F * te.getLookHealth() / TileReplicator.MAX_HEALTH);
@@ -201,6 +244,14 @@ public class RenderReplicator extends TileEntitySpecialRenderer<TileReplicator> 
         }
         float period = mode == 2 ? PULSE_SLOW : PULSE_FAST;
         return 0.25F + 0.75F * (0.5F + 0.5F * (float) Math.cos(Math.PI * 2 * time / period));
+    }
+
+    /** Цвет на доле k пути от a к b. */
+    private static int mix(int a, int b, float k) {
+        int r = Math.round((a >> 16 & 255) + ((b >> 16 & 255) - (a >> 16 & 255)) * k);
+        int g = Math.round((a >> 8 & 255) + ((b >> 8 & 255) - (a >> 8 & 255)) * k);
+        int bl = Math.round((a & 255) + ((b & 255) - (a & 255)) * k);
+        return r << 16 | g << 8 | bl;
     }
 
     private static int dim(int rgb, float k) {

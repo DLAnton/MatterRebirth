@@ -71,7 +71,7 @@ public final class MRContent {
         neuroSynchronizerLeather = add(new ItemNeuroSynchronizer("neuro_synchronizer_leather", true));
         resonantMixture = add(new ItemBase("resonant_mixture", 64));
         resonantCrystal = add(new ItemBase("resonant_crystal", 64));
-        dimensionalAnchor = add(new ItemBase("dimensional_anchor", 1).setRarity(EnumRarity.RARE));
+        dimensionalAnchor = add(new ItemBase("dimensional_anchor", 64).setRarity(EnumRarity.RARE));
         Item casing = new ItemBlock(replicatorCasing).setRegistryName(replicatorCasing.getRegistryName());
         add(casing);
         for (Item item : ITEMS) {
