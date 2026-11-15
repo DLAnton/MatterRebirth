@@ -2,8 +2,10 @@ package dlx.matterrebirth.recipe;
 
 import dlx.matterrebirth.MatterRebirth;
 import dlx.matterrebirth.init.MRContent;
+import dlx.matterrebirth.item.NeuroLink;
 import ic2.api.item.IC2Items;
 import ic2.api.recipe.Recipes;
+import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.crafting.IRecipe;
 import net.minecraft.util.ResourceLocation;
@@ -14,12 +16,14 @@ import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 /**
  * Рецепты мода (итоговый концепт 05.11.2026, стартовые — уточняются в тестах).
  * Рецепты с деталями IC2 регистрируются через рецепт-менеджер IC2 (как у самого IC2: ингредиенты IC2 сравниваются
- * правильно, строка = словарь руд). Объединение и разборка синхронизатора с кожаным шлемом — свои рецепты.
+ * правильно, строка = словарь руд). Объединение и разборка синхронизатора с кожаным шлемом и квантовый нейрошлем
+ * (перенос NBT шлема) — свои рецепты.
  */
 @Mod.EventBusSubscriber(modid = MatterRebirth.MOD_ID)
 public final class MRRecipes {
 
     private static final ResourceLocation GROUP_SYNC = new ResourceLocation(MatterRebirth.MOD_ID, "sync_leather");
+    private static final ResourceLocation GROUP_NEURO = new ResourceLocation(MatterRebirth.MOD_ID, "neuro_helmet");
 
     private MRRecipes() {
     }
@@ -30,6 +34,15 @@ public final class MRRecipes {
                 .setRegistryName(MatterRebirth.MOD_ID, "neuro_synchronizer_leather"));
         event.getRegistry().register(new RecipeSyncLeather.Split(GROUP_SYNC)
                 .setRegistryName(MatterRebirth.MOD_ID, "neuro_synchronizer_split"));
+        // Квантовый нейрошлем: квантовый шлем IC2 в рецепте синхронизатора (Антон 09.11)
+        Item quantumHelmet = NeuroLink.quantumHelmet();
+        ItemStack glassCable = ic2("cable", "type:glass,insulation:0");
+        if (quantumHelmet != null && glassCable != null) {
+            event.getRegistry().register(new RecipeNeuroHelmet(GROUP_NEURO, quantumHelmet, glassCable,
+                    new ItemStack(MRContent.resonantCrystal)).setRegistryName(MatterRebirth.MOD_ID, "quantum_neuro_helmet"));
+        } else {
+            MatterRebirth.LOG.error("Quantum neuro helmet recipe skipped: IC2 quantum helmet or glass fibre cable is missing");
+        }
     }
 
     /** Вызывается в init: к этому моменту предметы и менеджеры рецептов IC2 готовы. */
@@ -38,8 +51,7 @@ public final class MRRecipes {
         ItemStack energiumDust = ic2("dust", "energium");
         ItemStack lithiumDust = ic2("dust", "lithium");
         ItemStack ironCasing = ic2("casing", "iron");
-        ItemStack copperCable = ic2("cable", "type:copper,insulation:1");
-        ItemStack carbonPlate = ic2("crafting", "carbon_plate");
+        ItemStack glassCable = ic2("cable", "type:glass,insulation:0");
         ItemStack iridiumReflector = ic2("iridium_reflector", null);
         ItemStack thickReflector = ic2("thick_neutron_reflector", null);
         ItemStack teleporter = ic2("te", "teleporter");
@@ -63,9 +75,10 @@ public final class MRRecipes {
         Recipes.compressor.addRecipe(Recipes.inputFactory.forStack(new ItemStack(MRContent.resonantMixture), 9),
                 null, false, crystal.copy());
 
-        // Нейросинхронизатор (вариант Антона): провода / схема, углепластина, схема / кристалл, -, кристалл
+        // Нейросинхронизатор (Антон 09.11): стекловолоконный кабель ×3 / продвинутая схема, железная оболочка,
+        // продвинутая схема / кристалл, -, кристалл
         shaped(new ItemStack(MRContent.neuroSynchronizer),
-                "WWW", "CBC", "e e", 'W', copperCable, 'C', "circuitBasic", 'B', carbonPlate, 'e', crystal);
+                "WWW", "CBC", "e e", 'W', glassCable, 'C', "circuitAdvanced", 'B', ironCasing, 'e', crystal);
 
         // Межпространственный якорь: иридиевый отражатель, 4 кристалла, 4 усовершенствованные схемы
         shaped(new ItemStack(MRContent.dimensionalAnchor),

@@ -1,0 +1,7 @@
+{
+  "parent": "ic2:item/default",
+  "textures": {
+    "layer0": "matterrebirth:items/neuro_quantum_helmet",
+    "layer1": "matterrebirth:items/neuro_quantum_helmet_overlay"
+  }
+}

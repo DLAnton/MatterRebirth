@@ -3,6 +3,7 @@ package dlx.matterrebirth.proxy;
 import dlx.matterrebirth.MatterRebirth;
 import dlx.matterrebirth.client.FreshSkeletonTexture;
 import dlx.matterrebirth.client.IC2LangPatch;
+import dlx.matterrebirth.client.NeuroHelmetClient;
 import dlx.matterrebirth.client.RenderReplicator;
 import dlx.matterrebirth.client.ReplicatorBakedModel;
 import dlx.matterrebirth.client.ShimmerSprite;
@@ -42,6 +43,7 @@ public class ProxyClient extends Proxy {
         ClientRegistry.bindTileEntitySpecialRenderer(TileReplicator.class, new RenderReplicator());
         // «свежий» скелет клона собирается из ванильного при загрузке и при каждой перезагрузке ресурсов
         Minecraft.getMinecraft().getTextureManager().loadTexture(FreshSkeletonTexture.LOCATION, new FreshSkeletonTexture());
+        NeuroHelmetClient.init(); // фиолетовый глаз квантового нейрошлема на голове
     }
 
     /**
@@ -116,7 +118,10 @@ public class ProxyClient extends Proxy {
         }
     }
 
-    /** Кожаный вариант синхронизатора: слой 0 (шлем) окрашивается цветом шлема, слой 1 (накладка) — нет. */
+    /**
+     * Кожаный вариант синхронизатора: значок — настоящий значок кожаного шлема (слой 0 красится цветом шлема, слой 1 —
+     * его некрашеная середина) и поверх синхронизатор (слой 2), как решил Антон 14.11; красится только слой 0.
+     */
     @SubscribeEvent
     public static void registerItemColors(ColorHandlerEvent.Item event) {
         event.getItemColors().registerItemColorHandler((stack, tintIndex) ->

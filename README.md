@@ -23,10 +23,11 @@ On Hardcore this turns death into a rebirth; in normal survival it is an expensi
 4. **Clone Replicator.** Two identical construction blocks stacked on top of each other assemble into the machine.
    It reads the pattern from the adjacent storage and grows a clone from liquid UU-Matter and EU
    in five stages: skeleton, nerves, blood vessels, muscles and skin.
-5. **Neurosynchronizer** or IC2 Quantum Helmet on your head. Without one, the mind is not transferred.
+5. **Neurosynchronizer** or a **Quantum Neuro Helmet** (an IC2 Quantum Helmet crafted with a neural link) on your head.
+   Without one, the mind is not transferred.
 
-A clone costs one bucket of UU-Matter and takes one in-game day to grow (512 EU/t, HV machine).
-A ready clone needs a little UU and 16 EU/t to stay alive. With an **Interdimensional Anchor** upgrade
+A clone costs two buckets of UU-Matter and takes one in-game day to grow (512 EU/t, HV machine).
+A ready clone needs a little UU and 32 EU/t to stay alive. With an **Interdimensional Anchor** in its slot
 a clone can catch your mind from other dimensions too.
 
 ![Items](docs/images/items.png)

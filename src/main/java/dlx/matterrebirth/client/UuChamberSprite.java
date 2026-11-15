@@ -121,7 +121,7 @@ public class UuChamberSprite extends TextureAtlasSprite {
     }
 
     /** Ресурс с изменённой картинкой и анимацией (метаданными) исходной текстуры IC2. */
-    private static final class Translucent implements IResource {
+    static final class Translucent implements IResource {
         private final IResource source;
         private final byte[] png;
 

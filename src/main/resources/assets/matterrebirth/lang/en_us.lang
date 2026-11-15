@@ -16,6 +16,7 @@ item.matterrebirth.blood_sample.no_owner=unknown
 item.matterrebirth.blood_sample.tip1=Scan it in the IC2 Scanner
 item.matterrebirth.neuro_synchronizer.tip1=Neural headset, worn instead of a helmet
 item.matterrebirth.neuro_synchronizer.tip2=Moves your mind into a clone
+matterrebirth.neuro_link.tooltip=Neural link: moves your mind into a clone
 item.matterrebirth.neuro_synchronizer_leather.tip1=Can be dyed
 item.matterrebirth.neuro_synchronizer_leather.tip2=Cannot be enchanted
 item.matterrebirth.neuro_synchronizer_leather.tip3=Splits back on a crafting table

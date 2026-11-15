@@ -7,6 +7,7 @@ import dlx.matterrebirth.item.ItemBase;
 import dlx.matterrebirth.item.ItemBloodSample;
 import dlx.matterrebirth.item.ItemNeuroSynchronizer;
 import dlx.matterrebirth.item.ItemVacuumSyringe;
+import dlx.matterrebirth.item.NeuroLink;
 import dlx.matterrebirth.tile.TileReplicator;
 import dlx.matterrebirth.tile.TileReplicatorUpper;
 import net.minecraft.block.Block;
@@ -15,11 +16,14 @@ import net.minecraft.item.EnumRarity;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemBlock;
 import net.minecraft.item.ItemStack;
+import net.minecraft.util.NonNullList;
 import net.minecraft.util.ResourceLocation;
 import net.minecraftforge.event.RegistryEvent;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import net.minecraftforge.fml.common.registry.GameRegistry;
+import net.minecraftforge.fml.relauncher.Side;
+import net.minecraftforge.fml.relauncher.SideOnly;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -36,6 +40,24 @@ public final class MRContent {
         @Override
         public ItemStack createIcon() {
             return new ItemStack(bloodSample);
+        }
+
+        /**
+         * Квантовый нейрошлем — шлем IC2 с отметкой, своего предмета у него нет, поэтому сам он во вкладку не попадает.
+         * Кладём готовые (Антон 15.11, своя вкладка): те же варианты заряда, что IC2 даёт в своей вкладке, сразу после
+         * синхронизаторов.
+         */
+        @Override
+        @SideOnly(Side.CLIENT)
+        public void displayAllRelevantItems(NonNullList<ItemStack> items) {
+            super.displayAllRelevantItems(items);
+            int at = items.size();
+            for (int i = 0; i < items.size(); i++) {
+                if (items.get(i).getItem() == neuroSynchronizerLeather) {
+                    at = i + 1;
+                }
+            }
+            items.addAll(at, NeuroLink.creativeStacks());
         }
     };
 

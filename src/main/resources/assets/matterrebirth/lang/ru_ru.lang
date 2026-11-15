@@ -16,6 +16,7 @@ item.matterrebirth.blood_sample.no_owner=неизвестен
 item.matterrebirth.blood_sample.tip1=Отсканируйте в сканере IC2
 item.matterrebirth.neuro_synchronizer.tip1=Нейрогарнитура, носится вместо шлема
 item.matterrebirth.neuro_synchronizer.tip2=Переносит сознание в клон
+matterrebirth.neuro_link.tooltip=Нейросвязь: переносит сознание в клон
 item.matterrebirth.neuro_synchronizer_leather.tip1=Можно покрасить
 item.matterrebirth.neuro_synchronizer_leather.tip2=Зачаровать нельзя
 item.matterrebirth.neuro_synchronizer_leather.tip3=Разбирается на верстаке
