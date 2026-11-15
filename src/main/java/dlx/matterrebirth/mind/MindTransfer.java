@@ -10,6 +10,7 @@ import net.minecraft.block.state.IBlockState;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.inventory.EntityEquipmentSlot;
+import net.minecraft.item.ItemStack;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.EnumFacing;
 import net.minecraft.util.math.BlockPos;
@@ -43,7 +44,7 @@ import java.util.UUID;
  * в случайном порядке, в каждом — ближайший. Игрок выходит перед стеклом спиной к машине; занято — сбоку, сзади,
  * в крайнем случае на крыше. Машина без свободного места пропускается.
  * <p>
- * Вещи, опыт, сытость, эффекты и Хардкор — шаги 6б и 6в; пока вещи остаются у игрока.
+ * Вещи и опыт — {@link DeathDrops} (6б); сытость, эффекты и Хардкор — шаг 6в.
  */
 @Mod.EventBusSubscriber(modid = MatterRebirth.MOD_ID)
 public final class MindTransfer {
@@ -58,9 +59,11 @@ public final class MindTransfer {
             return;
         }
         EntityPlayerMP player = (EntityPlayerMP) event.getEntityLiving();
-        if (!NeuroLink.linksMind(player.getItemStackFromSlot(EntityEquipmentSlot.HEAD))) {
+        ItemStack head = player.getItemStackFromSlot(EntityEquipmentSlot.HEAD);
+        if (!NeuroLink.linksMind(head)) {
             return;
         }
+        DeathDrops.Death death = new DeathDrops.Death(player, NeuroLink.isNeuroHelmet(head)); // до перемещения
         for (TileReplicator machine : candidates(player)) {
             World world = machine.getWorld();
             BlockPos pos = machine.getPos();
@@ -77,6 +80,7 @@ public final class MindTransfer {
             }
             machine.takeClone(player.getName());
             event.setCanceled(true);
+            DeathDrops.apply(player, death);
             String dim = world.provider.getDimensionType().getName();
             player.sendMessage(new TextComponentTranslation("message.matterrebirth.mind_transferred",
                     dim, pos.getX(), pos.getY(), pos.getZ()));
