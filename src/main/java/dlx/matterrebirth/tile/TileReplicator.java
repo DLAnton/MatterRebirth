@@ -1826,6 +1826,46 @@ public class TileReplicator extends TileEntity implements ITickable {
         sink.onChunkUnload();
     }
 
+    // --- перенос сознания (этап 6а, Антон 15.11) ---
+
+    /** В камере готовый живой клон из крови этого игрока (кто собрал машину — неважно). */
+    public boolean hasReadyCloneOf(UUID player) {
+        return !pattern.isEmpty() && stage >= STAGES && !dead && decay <= 0 && health > EPS
+                && player.equals(ItemBloodSample.getOwnerId(pattern));
+    }
+
+    /** Якорь работает: стоит в своём слоте и машина под энергией (Антон 09.11) — клон доступен из других измерений. */
+    public boolean isAnchorWorking() {
+        return ReplicatorInventory.isAnchor(inventory.getStackInSlot(ReplicatorInventory.ANCHOR)) && isPowered();
+    }
+
+    /** Здоровье, которое клон передаст игроку: как сердечки в окне (вверх до целого), от 1 до MAX_HEALTH. */
+    public float cloneHealth() {
+        return Math.max(1, Math.min(MAX_HEALTH, (float) Math.ceil(health - EPS)));
+    }
+
+    /**
+     * Сознание перешло в клон: камера пустеет, шаблон остаётся, UU не возвращается (клон ушёл целиком). С «растить
+     * заново» рост сразу начинается снова, без него шаблон ждёт «Начать рост».
+     */
+    public void takeClone(String who) {
+        stage = 0;
+        progress = 0;
+        paid = 0;
+        takeStageValues();
+        charging = false;
+        health = 0;
+        lifeUu = 0;
+        healthFalling = false;
+        starveShown = 0;
+        rollbackShown = 0;
+        dead = false;
+        paused = !repeat;
+        status = Status.IDLE; // следующий тик пересчитает
+        sync();
+        debug("clone taken: mind of " + who + " transferred, repeat " + repeat);
+    }
+
     public void setOwner(EntityPlayer player) {
         ownerId = player.getUniqueID();
         ownerName = player.getName();

@@ -69,6 +69,7 @@ matterrebirth.config.client.ringGlow=Ореол колец репликатор�
 matterrebirth.config.client.ringGlow.tooltip=Мягкое цветное свечение вокруг колец пола и излучателя. Если с шейдерами выглядит плохо — выключите: цвет колец останется.
 message.matterrebirth.replicator_limit=Достигнут предел репликаторов клонов: %s
 message.matterrebirth.no_chunk_ticket=Репликатор клонов (%s, %s, %s) не держит свой чанк: у Forge закончились билеты загрузки чанков (forgeChunkLoading.cfg)
+message.matterrebirth.mind_transferred=Сознание перенесено в клон (%s, %s %s %s)
 gui.matterrebirth.replicator.trash=Сбросить шаблон и выращенное
 gui.matterrebirth.replicator.pattern_prev=Предыдущий шаблон
 gui.matterrebirth.replicator.pattern_next=Следующий шаблон
