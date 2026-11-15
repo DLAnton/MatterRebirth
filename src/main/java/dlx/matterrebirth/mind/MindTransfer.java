@@ -24,11 +24,13 @@ import net.minecraftforge.event.entity.living.LivingDeathEvent;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.common.eventhandler.EventPriority;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
+import net.minecraftforge.fml.common.gameevent.TickEvent;
 
 import javax.annotation.Nullable;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -44,12 +46,32 @@ import java.util.UUID;
  * в случайном порядке, в каждом — ближайший. Игрок выходит перед стеклом спиной к машине; занято — сбоку, сзади,
  * в крайнем случае на крыше. Машина без свободного места пропускается.
  * <p>
- * Вещи и опыт — {@link DeathDrops} (6б); сытость, эффекты и Хардкор — шаг 6в.
+ * Вещи и опыт — {@link DeathDrops} (6б); эффекты и сытость пробуждения — {@link Awakening} (6в).
  */
 @Mod.EventBusSubscriber(modid = MatterRebirth.MOD_ID)
 public final class MindTransfer {
 
+    /**
+     * Перенесённые в этом тике: в конце их тика тело сбрасывается ещё раз (Awakening.resetBody). Смерть в лаве
+     * приходит изнутри Entity.setOnFireFromLava — после нашего возврата игра сама поджигала игрока на 15 с, уже
+     * у машины (проверка Антона 15.11); так же иссушение, яд и эффекты стрел ставятся после смертельного удара.
+     * Тик игрока идёт после тика мира и команд, поэтому конец его тика — после всего, что могло убить.
+     * Только серверный поток.
+     */
+    private static final Map<UUID, Boolean> JUST_MOVED = new HashMap<>(); // игрок → квантовый нейрошлем
+
     private MindTransfer() {
+    }
+
+    @SubscribeEvent
+    public static void onPlayerTick(TickEvent.PlayerTickEvent event) {
+        if (event.phase != TickEvent.Phase.END || event.player.world.isRemote || JUST_MOVED.isEmpty()) {
+            return;
+        }
+        Boolean quantum = JUST_MOVED.remove(event.player.getUniqueID());
+        if (quantum != null && event.player instanceof EntityPlayerMP) {
+            Awakening.resetBody((EntityPlayerMP) event.player, quantum);
+        }
     }
 
     /** LOW: моды, которые сами спасают от смерти и отменяют событие, идут раньше; отменённое мы не получаем. */
@@ -81,6 +103,8 @@ public final class MindTransfer {
             machine.takeClone(player.getName());
             event.setCanceled(true);
             DeathDrops.apply(player, death);
+            Awakening.apply(player, death.fullXp);
+            JUST_MOVED.put(player.getUniqueID(), death.fullXp);
             String dim = world.provider.getDimensionType().getName();
             player.sendMessage(new TextComponentTranslation("message.matterrebirth.mind_transferred",
                     dim, pos.getX(), pos.getY(), pos.getZ()));
@@ -181,6 +205,7 @@ public final class MindTransfer {
         }
         player.dismountRidingEntity();
         player.removePassengers();
+        player.clearElytraFlying();
         int dim = to.provider.getDimension();
         if (player.dimension != dim) {
             player.changeDimension(dim, spot);
@@ -194,7 +219,7 @@ public final class MindTransfer {
         player.motionY = 0;
         player.motionZ = 0;
         player.fallDistance = 0;
-        player.extinguish();
+        player.extinguish(); // остальное тело — Awakening.resetBody
         player.setAir(300);
         return true;
     }
