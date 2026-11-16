@@ -355,6 +355,11 @@ public class ContainerReplicator extends Container {
      */
     @Override
     public ItemStack slotClick(int slotId, int dragType, ClickType clickType, EntityPlayer player) {
+        if (!player.world.isRemote && !tile.isUsableByPlayer(player)) {
+            // окно уже не действует (6г: начался рост чужого клона), закроется в конце тика игрока; клик не проходит,
+            // клиент получит слоты заново (сервер ответил не тем, что ждал клиент)
+            return ItemStack.EMPTY;
+        }
         ItemStack result = super.slotClick(slotId, dragType, clickType, player);
         if (player instanceof EntityPlayerMP) {
             EntityPlayerMP mp = (EntityPlayerMP) player;

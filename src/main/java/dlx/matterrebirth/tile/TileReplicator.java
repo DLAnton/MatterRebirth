@@ -1885,9 +1885,31 @@ public class TileReplicator extends TileEntity implements ITickable {
         return ownerName;
     }
 
+    /** Окно открыто и действует: машина на месте, игрок рядом и вправе ею распоряжаться (mayControl). */
     public boolean isUsableByPlayer(EntityPlayer player) {
         return world.getTileEntity(pos) == this
-                && player.getDistanceSq(pos.getX() + 0.5, pos.getY() + 1.0, pos.getZ() + 0.5) <= 64;
+                && player.getDistanceSq(pos.getX() + 0.5, pos.getY() + 1.0, pos.getZ() + 0.5) <= 64
+                && mayControl(player);
+    }
+
+    // --- защита (6г, Антон 09.11: «как личный сейф IC2») ---
+
+    /**
+     * В камере что-то есть: рост начат (стадия оплачена), клон растёт или готов, погибший клон ещё распадается.
+     * Тогда машина личная для донора крови шаблона; пустая камера — машина общая, как любая машина IC2.
+     * Работает и на клиенте (данные приходят с машиной): по ним клиент не ломает машину сам у себя.
+     */
+    public boolean isPrivate() {
+        return !pattern.isEmpty() && (hasGrowth() || decay > 0);
+    }
+
+    /**
+     * Может ли игрок открыть окно, нажимать кнопки, ломать машину и снимать её ключом: камера пуста, или он донор крови
+     * шаблона (по UUID; кто собрал машину — неважно), или администратор сервера (может всё). «Поддельные игроки»
+     * модов (автоматика) донором не бывают и права команд у них нет.
+     */
+    public boolean mayControl(EntityPlayer player) {
+        return !isPrivate() || player.getUniqueID().equals(ItemBloodSample.getOwnerId(pattern)) || player.canUseCommand(2, "");
     }
 
     @Override

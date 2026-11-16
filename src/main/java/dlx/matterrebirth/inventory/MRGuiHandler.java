@@ -19,7 +19,8 @@ public class MRGuiHandler implements IGuiHandler {
     @Override
     public Object getServerGuiElement(int id, EntityPlayer player, World world, int x, int y, int z) {
         TileEntity te = world.getTileEntity(new BlockPos(x, y, z));
-        if (id == REPLICATOR && te instanceof TileReplicator) {
+        // чужому игроку окно машины с клоном не открывается (6г), каким бы путём его ни открывали
+        if (id == REPLICATOR && te instanceof TileReplicator && ((TileReplicator) te).mayControl(player)) {
             return new ContainerReplicator(player.inventory, (TileReplicator) te);
         }
         return null;

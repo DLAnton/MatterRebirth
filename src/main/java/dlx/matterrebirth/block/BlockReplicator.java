@@ -50,6 +50,7 @@ import java.util.Locale;
  * Если сломать любую часть, вторая часть снова становится конструкционным блоком; выпадает конструкционный блок, если ломали
  * ключом, иначе улучшенный корпус машины IC2, как у репликатора IC2 (getDrops).
  * Ключи не поворачивают машину: ключ IC2 снимает часть, по которой ударили (как слом), остальные ключи ничего не делают.
+ * Пока в камере что-то есть, окно, слом и ключ — только донору крови шаблона (6г, ReplicatorGuard).
  */
 public class BlockReplicator extends Block implements IWrenchable {
 
@@ -192,11 +193,46 @@ public class BlockReplicator extends Block implements IWrenchable {
         }
         if (!world.isRemote && hand == EnumHand.MAIN_HAND) {
             BlockPos lower = lowerPos(state, pos);
-            if (world.getTileEntity(lower) instanceof TileReplicator) {
+            TileReplicator locked = ReplicatorGuard.lockedFor(world, pos, state, player);
+            if (locked != null) {
+                ReplicatorGuard.tell(player, locked); // чужая машина с клоном (6г): окно не открывается
+            } else if (world.getTileEntity(lower) instanceof TileReplicator) {
                 player.openGui(MatterRebirth.instance, MRGuiHandler.REPLICATOR, world, lower.getX(), lower.getY(), lower.getZ());
             }
         }
         return true;
+    }
+
+    // --- защита машины с клоном (6г, ReplicatorGuard): слом только донору крови и администраторам ---
+
+    /** Чужой игрок начал бить машину с клоном: сообщение, чья она (сломать он её не сможет). */
+    @Override
+    public void onBlockClicked(World world, BlockPos pos, EntityPlayer player) {
+        TileReplicator locked = ReplicatorGuard.lockedFor(world, pos, world.getBlockState(pos), player);
+        if (locked != null) {
+            ReplicatorGuard.tell(player, locked);
+        }
+    }
+
+    /** Чужой игрок в выживании не продвигается в копании ни на шаг (трещин нет). */
+    @Override
+    public float getPlayerRelativeBlockHardness(IBlockState state, EntityPlayer player, World world, BlockPos pos) {
+        if (ReplicatorGuard.lockedFor(world, pos, state, player) != null) {
+            return 0;
+        }
+        return super.getPlayerRelativeBlockHardness(state, player, world, pos);
+    }
+
+    /**
+     * Слом игроком в обход скорости копания (творческий режим, инструменты модов): на сервере и на клиенте блок
+     * остаётся, если машина чужая и в ней клон.
+     */
+    @Override
+    public boolean removedByPlayer(IBlockState state, World world, BlockPos pos, EntityPlayer player, boolean willHarvest) {
+        if (ReplicatorGuard.lockedFor(world, pos, state, player) != null) {
+            return false;
+        }
+        return super.removedByPlayer(state, world, pos, player, willHarvest);
     }
 
     /**
@@ -247,6 +283,11 @@ public class BlockReplicator extends Block implements IWrenchable {
 
     @Override
     public boolean wrenchCanRemove(World world, BlockPos pos, EntityPlayer player) {
+        TileReplicator locked = ReplicatorGuard.lockedFor(world, pos, world.getBlockState(pos), player);
+        if (locked != null) {
+            ReplicatorGuard.tell(player, locked);
+            return false;
+        }
         return true;
     }
 
