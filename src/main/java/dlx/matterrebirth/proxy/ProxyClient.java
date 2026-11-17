@@ -1,6 +1,7 @@
 package dlx.matterrebirth.proxy;
 
 import dlx.matterrebirth.MatterRebirth;
+import dlx.matterrebirth.client.CloneAlerts;
 import dlx.matterrebirth.client.FreshSkeletonTexture;
 import dlx.matterrebirth.client.IC2LangPatch;
 import dlx.matterrebirth.client.NeuroHelmetClient;
@@ -9,6 +10,7 @@ import dlx.matterrebirth.client.ReplicatorBakedModel;
 import dlx.matterrebirth.client.ShimmerSprite;
 import dlx.matterrebirth.client.UuChamberSprite;
 import dlx.matterrebirth.init.MRContent;
+import dlx.matterrebirth.network.CloneAlertMessage;
 import dlx.matterrebirth.tile.TileReplicator;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.block.model.IBakedModel;
@@ -32,7 +34,7 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 
-/** Клиент: модели предметов и машины, отрисовщик машины и клона, пузырьки, переводы для IC2. */
+/** Клиент: модели предметов и машины, отрисовщик машины и клона, пузырьки, переводы для IC2, уведомления о беде клонов. */
 @Mod.EventBusSubscriber(modid = MatterRebirth.MOD_ID, value = Side.CLIENT)
 public class ProxyClient extends Proxy {
 
@@ -44,6 +46,12 @@ public class ProxyClient extends Proxy {
         // «свежий» скелет клона собирается из ванильного при загрузке и при каждой перезагрузке ресурсов
         Minecraft.getMinecraft().getTextureManager().loadTexture(FreshSkeletonTexture.LOCATION, new FreshSkeletonTexture());
         NeuroHelmetClient.init(); // фиолетовый глаз квантового нейрошлема на голове
+    }
+
+    /** Уведомления о беде клонов: в основной поток игры, там их очередь и показ. */
+    @Override
+    public void onCloneAlert(List<CloneAlertMessage.Card> cards) {
+        Minecraft.getMinecraft().addScheduledTask(() -> CloneAlerts.show(cards));
     }
 
     /**

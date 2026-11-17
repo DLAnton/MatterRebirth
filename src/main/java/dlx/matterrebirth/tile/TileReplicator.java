@@ -269,6 +269,11 @@ public class TileReplicator extends TileEntity implements ITickable {
      * шаблона (Антон 09.11); с «растить заново» снимается сам в конце распада.
      */
     private boolean dead;
+    /**
+     * О гибели клона уже сообщено донору крови (6д-1): гибель сообщается один раз, в том числе после загрузки
+     * сохранения (Антон 17.11). Ставит и снимает {@link dlx.matterrebirth.mind.CloneWatch}.
+     */
+    private boolean deathTold;
     // не сохраняются: здоровье падает (для тревоги), счётчик тревоги, последний сигнал компаратора
     private boolean healthFalling;
     /** Тиков с последней тревоги (до ALARM_INTERVAL): тревога не чаще раза в 3 секунды, даже если питание скачет. */
@@ -1028,6 +1033,17 @@ public class TileReplicator extends TileEntity implements ITickable {
 
     public boolean isDead() {
         return dead;
+    }
+
+    public boolean isDeathTold() {
+        return deathTold;
+    }
+
+    public void setDeathTold(boolean told) {
+        if (deathTold != told) {
+            deathTold = told;
+            markSaveDirty();
+        }
     }
 
     /** Запас дошёл до половины при нехватке питания: рост из запаса запрещён, пока запас не станет полным. */
@@ -1839,6 +1855,52 @@ public class TileReplicator extends TileEntity implements ITickable {
         return ReplicatorInventory.isAnchor(inventory.getStackInSlot(ReplicatorInventory.ANCHOR)) && isPowered();
     }
 
+    /** В слоте якоря стоит якорь (работает он или нет — isAnchorWorking). */
+    public boolean hasAnchor() {
+        return ReplicatorInventory.isAnchor(inventory.getStackInSlot(ReplicatorInventory.ANCHOR));
+    }
+
+    /** Чья кровь в выбранном шаблоне (для нейросвязи, 6д); null — шаблона нет или образец без владельца. */
+    @Nullable
+    public UUID getPatternOwner() {
+        return pattern.isEmpty() ? null : ItemBloodSample.getOwnerId(pattern);
+    }
+
+    /** В камере клон выбранного шаблона в любом виде: растёт (хоть одна оплаченная стадия), готов или погиб. */
+    public boolean holdsClone() {
+        return !pattern.isEmpty() && (hasGrowth() || stage >= STAGES || dead);
+    }
+
+    /**
+     * Беда клона для уведомлений нейросвязи (6д-1), как её видит игрок у машины (отображаемое состояние), без
+     * задержек — их добавляет {@link dlx.matterrebirth.mind.CloneWatch}: TROUBLE_HEALTH — готовый клон теряет
+     * здоровье (нет UU или энергии), TROUBLE_ROLLBACK — откат роста, TROUBLE_DEAD — клон погиб (распад и после него,
+     * пока не начат новый рост). Перегрузка бедой не считается: клону она не вредит.
+     */
+    public int getTrouble() {
+        if (pattern.isEmpty()) {
+            return TROUBLE_NONE;
+        }
+        if (dead) {
+            return TROUBLE_DEAD;
+        }
+        Status s = shownStatus();
+        if (stage >= STAGES && (s == Status.NEED_UU || s == Status.NO_POWER)) {
+            return TROUBLE_HEALTH;
+        }
+        return s == Status.ROLLBACK ? TROUBLE_ROLLBACK : TROUBLE_NONE;
+    }
+
+    /** При TROUBLE_HEALTH: здоровье падает от нехватки UU (иначе — энергии). */
+    public boolean isTroubleNoUu() {
+        return shownStatus() == Status.NEED_UU;
+    }
+
+    public static final int TROUBLE_NONE = 0;
+    public static final int TROUBLE_HEALTH = 1;
+    public static final int TROUBLE_ROLLBACK = 2;
+    public static final int TROUBLE_DEAD = 3;
+
     /** Здоровье, которое клон передаст игроку: как сердечки в окне (вверх до целого), от 1 до MAX_HEALTH. */
     public float cloneHealth() {
         return Math.max(1, Math.min(MAX_HEALTH, (float) Math.ceil(health - EPS)));
@@ -1939,6 +2001,7 @@ public class TileReplicator extends TileEntity implements ITickable {
         health = stage >= STAGES ? (tag.hasKey("Health") ? Math.max(0, Math.min(MAX_HEALTH, tag.getDouble("Health"))) : MAX_HEALTH) : 0;
         lifeUu = Math.max(0, Math.min(1, tag.getDouble("LifeUu")));
         dead = tag.getBoolean("Dead");
+        deathTold = tag.getBoolean("DeathTold");
         repeat = tag.getBoolean("Repeat");
         paused = tag.getBoolean("Paused");
         look = tag.hasKey("Look") ? tag.getInteger("Look") : -1;
@@ -1993,6 +2056,7 @@ public class TileReplicator extends TileEntity implements ITickable {
         tag.setDouble("Health", health);
         tag.setDouble("LifeUu", lifeUu);
         tag.setBoolean("Dead", dead);
+        tag.setBoolean("DeathTold", deathTold);
         tag.setBoolean("Repeat", repeat);
         tag.setBoolean("Paused", paused);
         tag.setInteger("Look", look);

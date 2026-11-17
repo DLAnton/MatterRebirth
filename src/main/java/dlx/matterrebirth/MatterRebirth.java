@@ -1,5 +1,6 @@
 package dlx.matterrebirth;
 
+import dlx.matterrebirth.mind.CloneWatch;
 import dlx.matterrebirth.proxy.Proxy;
 import dlx.matterrebirth.tile.TileReplicator;
 import net.minecraftforge.fml.common.Loader;
@@ -57,5 +58,6 @@ public class MatterRebirth {
     @Mod.EventHandler
     public void serverAboutToStart(FMLServerAboutToStartEvent event) {
         TileReplicator.loadBalance();
+        CloneWatch.reset(); // уведомления о беде клонов: в новом мире игроки ничего не знают
     }
 }
