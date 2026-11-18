@@ -5,6 +5,7 @@ import dlx.matterrebirth.chunk.ReplicatorChunks;
 import dlx.matterrebirth.compat.BogoSorterCompat;
 import dlx.matterrebirth.inventory.MRGuiHandler;
 import dlx.matterrebirth.network.CloneAlertMessage;
+import dlx.matterrebirth.network.CloneListMessage;
 import dlx.matterrebirth.network.MRNetwork;
 import dlx.matterrebirth.recipe.MRRecipes;
 import net.minecraft.util.math.BlockPos;
@@ -35,6 +36,10 @@ public class Proxy {
 
     /** Пришли уведомления о беде клонов (поток сети; только клиент, на сервере ничего). */
     public void onCloneAlert(List<CloneAlertMessage.Card> cards) {
+    }
+
+    /** Пришёл список клонов для панели «Нейросвязь» (поток сети; только клиент, на сервере ничего). */
+    public void onCloneList(List<CloneListMessage.Entry> clones) {
     }
 
     /** Пузырьки UU в камере репликатора (только клиент; на сервере ничего). */

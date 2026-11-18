@@ -1302,6 +1302,21 @@ public class TileReplicator extends TileEntity implements ITickable {
         return stage >= STAGES ? 1 : progress / stageTotal();
     }
 
+    /**
+     * Общий рост клона за все стадии, 0..1 (панель «Нейросвязь», 6д-2): доли стадий как у цены и времени
+     * (STAGE_SHARE), текущая — по своему прогрессу; у готового и погибшего — 1.
+     */
+    public double getTotalGrowth() {
+        if (stage >= STAGES) {
+            return 1;
+        }
+        double done = 0;
+        for (int i = 0; i < stage; i++) {
+            done += STAGE_SHARE[i];
+        }
+        return Math.max(0, Math.min(1, (done + STAGE_SHARE[stage] * getStageProgress()) / 100));
+    }
+
     /** Состояние для окна (как его видит игрок, см. shownStatus). */
     public Status getStatus() {
         return shownStatus();

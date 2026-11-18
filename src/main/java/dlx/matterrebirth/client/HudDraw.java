@@ -56,6 +56,30 @@ public final class HudDraw {
         t.draw();
     }
 
+    /**
+     * Дуга окружности (кольцо прогресса панели «Нейросвязь», 6д-2): центр, радиус по середине линии, толщина; от доли
+     * from до доли to полного круга, 0 — верх, по часовой стрелке на экране.
+     */
+    public static void arc(float cx, float cy, float r, float width, float from, float to, int color) {
+        if (to <= from || width <= 0) {
+            return;
+        }
+        int n = Math.max(2, (int) Math.ceil((to - from) * 64));
+        float in = Math.max(0, r - width / 2);
+        float out = r + width / 2;
+        Tessellator t = Tessellator.getInstance();
+        BufferBuilder b = t.getBuffer();
+        b.begin(GL11.GL_TRIANGLE_STRIP, DefaultVertexFormats.POSITION_COLOR);
+        for (int i = 0; i <= n; i++) {
+            double a = 2 * Math.PI * (from + (to - from) * i / n) - Math.PI / 2;
+            float c = (float) Math.cos(a);
+            float s = (float) Math.sin(a);
+            vertex(b, cx + c * in, cy + s * in, color);
+            vertex(b, cx + c * out, cy + s * out, color);
+        }
+        t.draw();
+    }
+
     /** Точки контура против часовой стрелки на экране (как у прямоугольников игры), x и y подряд. */
     private static float[] path(float x, float y, float w, float h, float r) {
         r = Math.max(0, Math.min(r, Math.min(w, h) / 2));

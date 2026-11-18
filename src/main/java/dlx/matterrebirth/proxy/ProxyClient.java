@@ -5,12 +5,14 @@ import dlx.matterrebirth.client.CloneAlerts;
 import dlx.matterrebirth.client.FreshSkeletonTexture;
 import dlx.matterrebirth.client.IC2LangPatch;
 import dlx.matterrebirth.client.NeuroHelmetClient;
+import dlx.matterrebirth.client.NeuroPanel;
 import dlx.matterrebirth.client.RenderReplicator;
 import dlx.matterrebirth.client.ReplicatorBakedModel;
 import dlx.matterrebirth.client.ShimmerSprite;
 import dlx.matterrebirth.client.UuChamberSprite;
 import dlx.matterrebirth.init.MRContent;
 import dlx.matterrebirth.network.CloneAlertMessage;
+import dlx.matterrebirth.network.CloneListMessage;
 import dlx.matterrebirth.tile.TileReplicator;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.block.model.IBakedModel;
@@ -52,6 +54,12 @@ public class ProxyClient extends Proxy {
     @Override
     public void onCloneAlert(List<CloneAlertMessage.Card> cards) {
         Minecraft.getMinecraft().addScheduledTask(() -> CloneAlerts.show(cards));
+    }
+
+    /** Список клонов для панели «Нейросвязь»: в основной поток игры. */
+    @Override
+    public void onCloneList(List<CloneListMessage.Entry> clones) {
+        Minecraft.getMinecraft().addScheduledTask(() -> NeuroPanel.set(clones));
     }
 
     /**
