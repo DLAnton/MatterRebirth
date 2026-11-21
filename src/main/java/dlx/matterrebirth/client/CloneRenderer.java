@@ -5,6 +5,7 @@ import dlx.matterrebirth.item.ItemBloodSample;
 import dlx.matterrebirth.tile.TileReplicator;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.BufferBuilder;
+import net.minecraft.client.renderer.GLAllocation;
 import net.minecraft.client.renderer.GlStateManager;
 import net.minecraft.client.renderer.OpenGlHelper;
 import net.minecraft.client.renderer.Tessellator;
@@ -19,7 +20,8 @@ import java.util.UUID;
 /**
  * Клон в камере (этап 5б, лист v9 утверждён Антоном 08.11). Слои по стадиям: 1 скелет (ванильный, «свежий» —
  * FreshSkeletonTexture), 2 нервы и 3 сосуды (тонкие оболочки чуть больше костей, на сосудах нарисованы и нервы),
- * 4 мышцы, 5 кожа — скин того, чья кровь в шаблоне (CloneSkins). Растущий слой виден от ступней до доли роста стадии,
+ * 4 мышцы, 5 кожа — скин того, чья кровь в шаблоне (CloneSkins). Лист v11 (Антон 21.11): глубокие сосуды и нервы
+ * туловища — объёмом внутри скелета (clone_inner.json), там же сердце, которое бьётся, когда сосуды выращены. Растущий слой виден от ступней до доли роста стадии,
  * при откате тает сверху. Клон ~1,4 блока, лицом к стеклу, едва заметно покачивается («парит» в UU).
  * Погибший клон — мертвецки бледный (PaleSkins), обмякшая поза; около минуты распадается сверху вниз, срез переливается
  * красным и фиолетовым (5г, Антон 14.11), потом камера пуста.
@@ -60,6 +62,43 @@ final class CloneRenderer {
     /** Высота погибшего клона для распада, пиксели клона: макушка со вторым слоем скина. */
     private static final float DECAY_TOP = 32.5F;
     private static final float ALL = 1000;
+
+    /**
+     * Глубокие стволы туловища (лист v11, Антон 21.11: «артерии не должны быть снаружи»): аорта, полые вены, ветви дуги,
+     * почечные и подвздошные сосуды, поясничное и крестцовое сплетения — объём из кубиков внутри скелета.
+     * clone_inner.json: {"vox", "vessels":[quad], "nerves":[quad]}, quad = [d, p, a0, b0, la, lb, c] — готовая наружная
+     * грань в вокселях (1/vox пикселя клона), d — нормаль (+x, −x, +y, −y, +z, −z), c — пиксель палитры 16x1.
+     * Координаты — как у коробок клона (y от ступней, перед +z, левая сторона клона +x).
+     */
+    private static final ResourceLocation INNER = new ResourceLocation(MatterRebirth.MOD_ID, "models/entity/clone_inner.json");
+    private static final ResourceLocation INNER_PALETTE = tex("clone_inner_palette");
+    /** Затенение граней объёма по d — как у коробок (бока 0,6, верх 1, низ 0,5, перед и зад 0,8). */
+    private static final float[] INNER_SHADE = {0.6F, 0.6F, 1F, 0.5F, 0.8F, 0.8F};
+    private static int innerVox = 4;
+    private static int[][] innerVessels, innerNerves;
+    /**
+     * Готовый объём без обрезки (стадия выращена — большую часть времени) — в списке отображения, собирается один раз:
+     * каждый кадр только вызов списка. Обрезанный линией роста объём строится по кадрам (меняется вместе с ростом).
+     */
+    private static final int[] INNER_LIST = {-1, -1};
+    private static boolean innerReloadHook;
+
+    /** Сброс объёма после перезагрузки ресурсов (вызывается в потоке отрисовки). */
+    private static void resetInner() {
+        innerVessels = innerNerves = null;
+        for (int i = 0; i < INNER_LIST.length; i++) {
+            if (INNER_LIST[i] >= 0) {
+                GLAllocation.deleteDisplayLists(INNER_LIST[i]);
+                INNER_LIST[i] = -1;
+            }
+        }
+    }
+    /** Верх туловища: мышцы выросли выше — объём и сердце закрыты. */
+    private static final float BODY_TOP = 24;
+    /** Сердце (как в раскадровке с 18.11): центр, наклон вокруг z (рад), с какой доли роста сосудов видно. */
+    private static final float HEART_X = 1.2F, HEART_Y = 18.4F, HEART_Z = -0.2F, HEART_TILT = -0.25F, HEART_FROM = 0.12F;
+    /** Затенение граней сердца (+x, −x, +y, −y, +z, −z): верх светлее, бока темнее. */
+    private static final float[] HEART_SHADE = {0.775F, 0.775F, 1.125F, 0.775F, 1F, 1F};
 
     private enum Part { HEAD, BODY, ARM_R, ARM_L, LEG_R, LEG_L }
 
@@ -203,6 +242,8 @@ final class CloneRenderer {
                     layer(st, under, ALL, slim, skin, NO_TINT, false);
                 }
             }
+            // объём и сердце — до среза: срез ставит полную яркость (240) и не возвращает свет камеры
+            inside(te, st, g, growing, f, clip);
             if (growing) {
                 layer(g, -ALL, clip, slim, skin, NO_TINT, false);
                 if (f < 1) {
@@ -212,6 +253,184 @@ final class CloneRenderer {
         }
         GlStateManager.enableCull();
         GlStateManager.enableLighting();
+    }
+
+    /**
+     * Внутри туловища: объём нервов (со стадии нервов), объём сосудов и сердце (со стадии сосудов). Растут по той же
+     * линии роста, что и оболочки, и тают сверху при откате; скрыты, когда мышцы закрыли туловище целиком, и на коже.
+     */
+    private static void inside(TileReplicator te, int st, int g, boolean growing, float f, float clip) {
+        if (st >= 4 || growing && g == 4 && clip >= BODY_TOP) {
+            return;
+        }
+        float nerves = st >= 2 ? ALL : growing && g == 2 ? clip : -ALL;
+        float vessels = st >= 3 ? ALL : growing && g == 3 ? clip : -ALL;
+        if (nerves > -ALL || vessels > -ALL) {
+            loadInner();
+            bind(INNER_PALETTE);
+            if (nerves > -ALL) {
+                inner(0, innerNerves, nerves);
+            }
+            if (vessels > -ALL) {
+                inner(1, innerVessels, vessels);
+            }
+        }
+        if (st >= 3) {
+            heart(te, 1, true);
+        } else if (growing && g == 3 && f > HEART_FROM) {
+            heart(te, Math.min(1, f * 1.4F), false);
+        }
+    }
+
+    /** Объём из граней-вокселей; видно до высоты clip (вертикальные грани укорочены, горизонтальные — целиком ниже). */
+    private static void inner(int kind, int[][] quads, float clip) {
+        if (quads == null || quads.length == 0) {
+            return;
+        }
+        if (clip < ALL) {
+            emitInner(quads, clip);
+            return;
+        }
+        if (INNER_LIST[kind] < 0) {
+            INNER_LIST[kind] = GLAllocation.generateDisplayLists(1);
+            GlStateManager.glNewList(INNER_LIST[kind], GL11.GL_COMPILE);
+            emitInner(quads, ALL);
+            GlStateManager.glEndList();
+        }
+        GlStateManager.callList(INNER_LIST[kind]);
+    }
+
+    private static void emitInner(int[][] quads, float clip) {
+        float q = 1F / innerVox;
+        Tessellator tess = Tessellator.getInstance();
+        BufferBuilder buf = tess.getBuffer();
+        buf.begin(GL11.GL_QUADS, DefaultVertexFormats.POSITION_TEX_COLOR_NORMAL);
+        for (int[] e : quads) {
+            int d = e[0];
+            float p = e[1] * q, a0 = e[2] * q, b0 = e[3] * q, a1 = (e[2] + e[4]) * q, b1 = (e[3] + e[5]) * q;
+            float u = (e[6] + 0.5F) / 16, v = 0.5F, s = INNER_SHADE[d];
+            float nx = d == 0 ? 1 : d == 1 ? -1 : 0, ny = d == 2 ? 1 : d == 3 ? -1 : 0, nz = d == 4 ? 1 : d == 5 ? -1 : 0;
+            if (d < 2) { // x = p, a — y, b — z
+                a1 = Math.min(a1, clip);
+                if (a1 <= a0) {
+                    continue;
+                }
+                vert(buf, p, a0, b0, u, v, s, nx, ny, nz);
+                vert(buf, p, a1, b0, u, v, s, nx, ny, nz);
+                vert(buf, p, a1, b1, u, v, s, nx, ny, nz);
+                vert(buf, p, a0, b1, u, v, s, nx, ny, nz);
+            } else if (d < 4) { // y = p, a — x, b — z
+                if (p > clip) {
+                    continue;
+                }
+                vert(buf, a0, p, b0, u, v, s, nx, ny, nz);
+                vert(buf, a1, p, b0, u, v, s, nx, ny, nz);
+                vert(buf, a1, p, b1, u, v, s, nx, ny, nz);
+                vert(buf, a0, p, b1, u, v, s, nx, ny, nz);
+            } else { // z = p, a — x, b — y
+                b1 = Math.min(b1, clip);
+                if (b1 <= b0) {
+                    continue;
+                }
+                vert(buf, a0, b0, p, u, v, s, nx, ny, nz);
+                vert(buf, a1, b0, p, u, v, s, nx, ny, nz);
+                vert(buf, a1, b1, p, u, v, s, nx, ny, nz);
+                vert(buf, a0, b1, p, u, v, s, nx, ny, nz);
+            }
+        }
+        tess.draw();
+    }
+
+    private static void vert(BufferBuilder buf, float x, float y, float z, float u, float v, float s,
+                             float nx, float ny, float nz) {
+        buf.pos(x, y, z).tex(u, v).color(s, s, s, 1F).normal(nx, ny, nz).endVertex();
+    }
+
+    /** Прочитать clone_inner.json один раз; без файла объёма нет (в лог — предупреждение). */
+    private static void loadInner() {
+        if (innerVessels != null) {
+            return;
+        }
+        innerVessels = new int[0][];
+        innerNerves = new int[0][];
+        if (!innerReloadHook && Minecraft.getMinecraft().getResourceManager() instanceof net.minecraft.client.resources.IReloadableResourceManager) {
+            // F3+T и смена пакета ресурсов: json прочитать заново, списки освободить (соберутся при следующем показе)
+            innerReloadHook = true;
+            ((net.minecraft.client.resources.IReloadableResourceManager) Minecraft.getMinecraft().getResourceManager())
+                    .registerReloadListener(manager -> resetInner());
+        }
+        try (java.io.InputStream in = Minecraft.getMinecraft().getResourceManager().getResource(INNER).getInputStream();
+             java.io.Reader r = new java.io.InputStreamReader(in, java.nio.charset.StandardCharsets.UTF_8)) {
+            com.google.gson.JsonObject o = new com.google.gson.JsonParser().parse(r).getAsJsonObject();
+            innerVox = o.get("vox").getAsInt();
+            innerVessels = quads(o.getAsJsonArray("vessels"));
+            innerNerves = quads(o.getAsJsonArray("nerves"));
+        } catch (Exception e) {
+            MatterRebirth.LOG.warn("clone_inner.json not loaded: {}", e.toString());
+        }
+    }
+
+    private static int[][] quads(com.google.gson.JsonArray a) {
+        int[][] out = new int[a.size()][];
+        for (int i = 0; i < out.length; i++) {
+            com.google.gson.JsonArray e = a.get(i).getAsJsonArray();
+            out[i] = new int[7];
+            for (int k = 0; k < 7; k++) {
+                out[i][k] = e.get(k).getAsInt();
+            }
+            out[i][0] = Math.max(0, Math.min(5, out[i][0]));
+            out[i][6] = Math.max(0, Math.min(15, out[i][6]));
+        }
+        return out;
+    }
+
+    /**
+     * Сердце внутри скелета: желудочек и предсердия, грани затенены как объём. Растёт с долей сосудов (scale);
+     * когда сосуды выращены — бьётся: ph = (t·1,2) mod 1, удар = e^(−9ph) + 0,6·e^(−14|ph−0,22|).
+     */
+    private static void heart(TileReplicator te, float scale, boolean beating) {
+        float vr = 0x9a / 255F, vg = 0x16 / 255F, vb = 0x22 / 255F;
+        if (beating) {
+            float t = (te.getWorld().getTotalWorldTime() + Minecraft.getMinecraft().getRenderPartialTicks()) / 20F;
+            float ph = (t * 1.2F) % 1;
+            float beat = (float) (Math.exp(-ph * 9) + 0.6 * Math.exp(-Math.abs(ph - 0.22F) * 14));
+            scale *= 1 + 0.14F * beat;
+            vr = 0.6F + 0.4F * beat;
+            vg = 0.08F + 0.1F * beat;
+            vb = 0.12F + 0.08F * beat;
+        }
+        GlStateManager.disableTexture2D();
+        GlStateManager.pushMatrix();
+        GlStateManager.translate(HEART_X, HEART_Y, HEART_Z);
+        GlStateManager.rotate((float) Math.toDegrees(HEART_TILT), 0, 0, 1);
+        GlStateManager.scale(scale, scale, scale);
+        Tessellator tess = Tessellator.getInstance();
+        BufferBuilder buf = tess.getBuffer();
+        buf.begin(GL11.GL_QUADS, DefaultVertexFormats.POSITION_COLOR);
+        cube(buf, 0, -0.4F, 0, 2.6F, 3, 2.2F, vr, vg, vb); // желудочек
+        cube(buf, -0.5F, 1.5F, -0.1F, 1.6F, 1.2F, 1.6F, 0x2f / 255F, 0x3f / 255F, 0x9a / 255F); // предсердия
+        tess.draw();
+        GlStateManager.popMatrix();
+        GlStateManager.enableTexture2D();
+    }
+
+    /** Коробка без текстуры: центр, размеры, цвет; грани затенены по HEART_SHADE. */
+    private static void cube(BufferBuilder buf, float cx, float cy, float cz, float w, float h, float d,
+                             float r, float g, float b) {
+        float x0 = cx - w / 2, x1 = cx + w / 2, y0 = cy - h / 2, y1 = cy + h / 2, z0 = cz - d / 2, z1 = cz + d / 2;
+        float[][][] faces = {
+                {{x1, y0, z0}, {x1, y1, z0}, {x1, y1, z1}, {x1, y0, z1}},
+                {{x0, y0, z1}, {x0, y1, z1}, {x0, y1, z0}, {x0, y0, z0}},
+                {{x0, y1, z0}, {x0, y1, z1}, {x1, y1, z1}, {x1, y1, z0}},
+                {{x0, y0, z0}, {x1, y0, z0}, {x1, y0, z1}, {x0, y0, z1}},
+                {{x0, y0, z1}, {x1, y0, z1}, {x1, y1, z1}, {x0, y1, z1}},
+                {{x1, y0, z0}, {x0, y0, z0}, {x0, y1, z0}, {x1, y1, z0}}};
+        for (int i = 0; i < 6; i++) {
+            float s = HEART_SHADE[i];
+            for (float[] v : faces[i]) {
+                buf.pos(v[0], v[1], v[2]).color(Math.min(1, r * s), Math.min(1, g * s), Math.min(1, b * s), 1F).endVertex();
+            }
+        }
     }
 
     private static void bind(ResourceLocation texture) {

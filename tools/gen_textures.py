@@ -1,7 +1,11 @@
 """Генератор текстур Matter Rebirth (своя графика).
 
 Запуск: python tools/gen_textures.py  (нужен Pillow). Пишет PNG в src/main/resources/assets/matterrebirth/textures.
-Предметы 16x16, грани машин 32x32, как у IC2 2.8.
+Предметы 16x16, как у IC2 2.8.
+Здесь — предметы (кроме значков синхронизатора). Остальное — см. tools/README.md:
+конструкционный блок — replicator/build_replicator.py (порт машины с погашенными контактами, 20.11),
+значки синхронизатора — sync/gen_sync_icons.py (перерисованы 14.11),
+репликатор — replicator/build_replicator.py, слои клона — clone/gen_layers11.py.
 """
 import math
 import os
@@ -53,76 +57,6 @@ def syringe(level):
                 c = METAL_L if u > 17 else METAL                         # игла
             if c:
                 im.putpixel((x, y), c + (255,))
-    return im
-
-
-# Нейросинхронизатор (05.11.2026, после теста): иконка размером со шлемы IC2/Minecraft.
-# Кожаный вариант в два слоя: шлем в оттенках серого (слой 0, перекрашивается цветом шлема) и накладка (слой 1).
-SYNC_PAL = {'O':(0x22,0x24,0x26),'A':(0x5a,0x60,0x62),'a':(0x7a,0x82,0x84),'c':(0x5e,0xe0,0xe0),'s':(0xf0,0xf2,0xf2),
-'B':(0xdc,0xe2,0xe3),'b':(0xa6,0xae,0xb0),'G':(0xd8,0x9c,0xf0),'g':(0x8a,0x2c,0xb0),'d':(0x4e,0x10,0x6a),'k':(0x3a,0x7a,0x3a),'r':(0xd0,0x30,0x30),
-'L':(0xff,0xff,0xff),'l':(0xc8,0xc8,0xc8),'m':(0x96,0x96,0x96),'n':(0x5a,0x5a,0x5a)}
-
-SYNC = [
-'................',
-'................',
-'................',
-'......OccO......',
-'....OOAaaAOO....',
-'...OAcOAAOcAO...',
-'...OAO.AA.OAO...',
-'..OOOOcAAcOOOO..',
-'..OGgO.ss.OGgO..',
-'..OgdO....OgdO..',
-'..OkrO....OkrO..',
-'..ObbO....ObbO..',
-'..OOOO....OOOO..',
-'...A........A...',
-'................',
-'................']
-# кожаный шлем: L/l/m/n — оттенки серого, перекрашиваются цветом шлема (слой 0)
-CAP = [
-'................',
-'................',
-'................',
-'.....nnnnnn.....',
-'....nLLLllmn....',
-'...nLLllllmmn...',
-'...nLllllllmn...',
-'...nlllllllmn...',
-'...nlllllmmmn...',
-'...nmmmmmmmmn...',
-'...nmn....nmn...',
-'...nnn....nnn...',
-'................',
-'................',
-'................',
-'................']
-# накладка (слой 1): усики, контакты и капсулы поверх шлема, не красятся
-OVER = [
-'................',
-'................',
-'.......cc.......',
-'.....c.AA.c.....',
-'......AAAA......',
-'.....A.AA.A.....',
-'....A..AA..A....',
-'..OOOO.ss.OOOO..',
-'..OGgO....OGgO..',
-'..OgdO....OgdO..',
-'..OkrO....OkrO..',
-'..OOOO....OOOO..',
-'................',
-'................',
-'................',
-'................']
-
-
-def sync_art(rows):
-    im = icon()
-    for y, r in enumerate(rows):
-        for x, ch in enumerate(r):
-            if ch != '.':
-                im.putpixel((x, y), SYNC_PAL[ch] + (255,))
     return im
 
 
@@ -257,36 +191,6 @@ def core_icon():
     return Image.blend(core_orig(), recolor(core_orig(), spread=1.0), 0.5)
 
 
-def face32(kind):
-    """Грань корпуса: светлая панель с фаской, канавки, заклёпки, в центре порт с погашенными контактами."""
-    PAN, PAN_L, PAN_D, GRV, RIV, RIV_L = (0xcd, 0xd7, 0xd8), (0xe4, 0xea, 0xea), (0x9c, 0xa5, 0xa6), (0xb0, 0xb8, 0xb8), (0x98, 0x9f, 0x9f), (0xee, 0xf2, 0xf2)
-    SOCK, SOCK_D, PIN = (0x3a, 0x42, 0x43), (0x26, 0x2c, 0x2d), (0x80, 0x8a, 0x8a)
-    im = Image.new('RGBA', (32, 32), PAN + (255,))
-    px = im.load()
-    for i in range(32):
-        px[i, 0] = px[0, i] = PAN_L + (255,)
-        px[i, 31] = px[31, i] = PAN_D + (255,)
-        px[i, 1] = px[1, i] = PAN_L + (255,) if 0 < i < 31 else px[i, 1]
-        px[i, 30] = px[30, i] = PAN_D + (255,) if 0 < i < 31 else px[i, 30]
-    for i in range(4, 28):                      # внутренняя канавка
-        px[i, 4] = px[4, i] = GRV + (255,); px[i, 27] = px[27, i] = PAN_L + (255,)
-    for (x, y) in ((2, 2), (28, 2), (2, 28), (28, 28)):   # заклёпки 2x2
-        px[x, y] = RIV_L + (255,); px[x + 1, y] = RIV + (255,); px[x, y + 1] = RIV + (255,); px[x + 1, y + 1] = PAN_D + (255,)
-    # порт
-    for y in range(10, 22):
-        for x in range(10, 22):
-            edge = x in (10, 21) or y in (10, 21)
-            px[x, y] = (PAN_D if edge else SOCK_D if (x in (11,) or y in (11,)) else SOCK) + (255,)
-    for (x, y) in ((13, 13), (18, 13), (13, 18), (18, 18)):
-        for dx in (0, 1):
-            for dy in (0, 1):
-                px[x + dx, y + dy] = (PIN if dx + dy < 2 else (0x60, 0x68, 0x68)) + (255,)
-    if kind == 'top':
-        for (x, y) in ((15, 15), (16, 15), (15, 16), (16, 16)):
-            px[x, y] = (0x4a, 0x52, 0x53, 255)
-    return im
-
-
 def anchor_upgrade():
     """Межпространственный якорь в стиле улучшений IC2: серая пластина 12x12 с фаской и знак 10x10."""
     im = Image.new('RGBA', (16, 16), (0, 0, 0, 0))
@@ -312,28 +216,21 @@ def anchor_upgrade():
 
 def main():
     items = os.path.join(ROOT, 'items')
-    blocks = os.path.join(ROOT, 'blocks')
     os.makedirs(items, exist_ok=True)
-    os.makedirs(blocks, exist_ok=True)
     out = {
         'vacuum_syringe': syringe(0),
         'blood_sample': syringe(1),
-        'neuro_synchronizer': sync_art(SYNC),
-        'neuro_synchronizer_leather': sync_art(CAP),
-        'neuro_synchronizer_leather_overlay': sync_art(OVER),
         'resonant_mixture': mixture(1.3),
         'resonant_crystal': core_icon(),
         'dimensional_anchor': anchor_upgrade(),
     }
     for name, im in out.items():
         im.save(os.path.join(items, name + '.png'))
-    face32('side').save(os.path.join(blocks, 'replicator_casing_side.png'))
-    face32('top').save(os.path.join(blocks, 'replicator_casing_top.png'))
     # вид синхронизатора на голове пока пустой (прозрачный слой брони 64x32); своя модель — этап «Облик»
     armor = os.path.join(ROOT, 'models', 'armor')
     os.makedirs(armor, exist_ok=True)
     Image.new('RGBA', (64, 32), (0, 0, 0, 0)).save(os.path.join(armor, 'neuro_synchronizer_layer_1.png'))
-    print('ok: %d item(s), 2 block face(s)' % len(out))
+    print('ok: %d item(s)' % len(out))
 
 
 if __name__ == '__main__':
